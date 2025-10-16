@@ -6,49 +6,9 @@ import {
   Tooltip, Legend, ResponsiveContainer
 } from 'recharts';
 import './DataVisualization.css';
+import { debugLog } from '../utils/debug';
 
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8', '#82ca9d', '#ffc658'];
-
-// Universal grouping function - handles any column combination
-const applyGrouping = (data, originalColumn, groupByColumn, aggregateColumn) => {
-  if (!data || !groupByColumn) {
-    return data;
-  }
-
-  try {
-    const groups = {};
-
-    // Group data by the LLM-suggested column
-    data.forEach(row => {
-      const groupKey = row[groupByColumn];
-      if (!groups[groupKey]) {
-        groups[groupKey] = {
-          [groupByColumn]: groupKey,
-          count: 0,  // Always create a count for grouped data
-          originalItems: []  // Keep original items for enhanced tooltips
-        };
-      }
-
-      // If we have an aggregate column (numeric), sum it; otherwise count occurrences
-      if (aggregateColumn && typeof row[aggregateColumn] === 'number') {
-        groups[groupKey][aggregateColumn] = (groups[groupKey][aggregateColumn] || 0) + row[aggregateColumn];
-      } else {
-        groups[groupKey].count += 1;  // Count occurrences
-      }
-
-      // Keep track of original items for tooltips
-      if (originalColumn && row[originalColumn]) {
-        groups[groupKey].originalItems.push(row[originalColumn]);
-      }
-    });
-
-    // Convert back to array format
-    return Object.values(groups);
-  } catch (error) {
-    console.error('Failed to apply grouping:', error);
-    return data;
-  }
-};
 
 const DataVisualization = ({ visualization, data }) => {
   if (!visualization || !data || data.length === 0) {
@@ -79,21 +39,164 @@ const DataVisualization = ({ visualization, data }) => {
     );
   }
 
+  // Validate that chart type is appropriate for the data
+  const isAggregateChart = ['bar', 'pie', 'line'].includes(type);
+  if (isAggregateChart) {
+    // Check if data looks aggregated (has numeric aggregates or grouped data)
+    const firstRow = processedData[0];
+    const hasNumericAggregate = Object.keys(firstRow).some(key => {
+      const value = firstRow[key];
+      const lowerKey = key.toLowerCase();
+      // Check if column name suggests aggregation AND value is numeric
+      return typeof value === 'number' && (
+        lowerKey.includes('count') ||
+        lowerKey.includes('total') ||
+        lowerKey.includes('sum') ||
+        lowerKey.includes('avg') ||
+        lowerKey.includes('average') ||
+        lowerKey.includes('max') ||
+        lowerKey.includes('min') ||
+        lowerKey === 'value' ||
+        lowerKey === 'amount'
+      );
+    });
+
+    // Check if data looks like entity relationships (e.g., VIP → Pool Name)
+    // Relationship data has multiple string columns and no aggregates
+    const stringColumnCount = Object.keys(firstRow).filter(key =>
+      typeof firstRow[key] === 'string'
+    ).length;
+    const isRelationshipData = stringColumnCount >= 2 && !hasNumericAggregate;
+
+    // Check for duplicate categories (sign of grouped/aggregated data)
+    const xValues = processedData.map(row => row[x_column]);
+    const hasDuplicates = new Set(xValues).size < xValues.length;
+
+    // Suppress chart if:
+    // 1. Data appears to be individual records (no aggregates, no duplicates, many rows)
+    // 2. Data appears to be entity relationships (multiple string columns, no aggregates)
+    if (isRelationshipData) {
+      debugLog('Suppressing chart - data appears to be entity relationships, not suitable for aggregate charts');
+      return null;
+    }
+
+    if (!hasNumericAggregate && !hasDuplicates && processedData.length > 5) {
+      debugLog('Suppressing chart - data appears to be individual records, not aggregated');
+      return null;
+    }
+  }
+
+  // Optimize chart type based on data characteristics
+  let optimizedType = type;
+  const numCategories = processedData.length;
+
+  debugLog('Chart optimization check:', {
+    originalType: type,
+    numCategories,
+    dataColumns: Object.keys(processedData[0])
+  });
+
+  // Suggest pie chart for small categorical distributions (2-5 categories with counts)
+  if (type === 'bar' && numCategories >= 2 && numCategories <= 5) {
+    const firstRow = processedData[0];
+    const hasCountColumn = Object.keys(firstRow).some(key =>
+      key.toLowerCase().includes('count') || key.toLowerCase() === 'value'
+    );
+    debugLog('Bar chart with 2-5 categories:', { hasCountColumn, columns: Object.keys(firstRow) });
+    if (hasCountColumn) {
+      optimizedType = 'pie';
+      debugLog('✓ Optimizing chart type: bar → pie (2-5 categories with counts)');
+    }
+  }
+
+  // Keep bar chart for many categories (>5)
+  if (optimizedType === 'pie' && numCategories > 5) {
+    optimizedType = 'bar';
+    debugLog('Keeping bar chart: too many categories for pie chart');
+  }
+
   // Validate that columns exist in processed data
   const firstRow = processedData[0];
+  const availableColumns = Object.keys(firstRow);
+
+  // Try to intelligently map columns if they don't exist
   if (!firstRow.hasOwnProperty(x_column) || !firstRow.hasOwnProperty(y_column)) {
-    return (
-      <div className="chart-container">
-        <h4 className="chart-title">{title}</h4>
-        <div className="chart-error">
-          Chart columns not found in data: {x_column}, {y_column}
+    // Try to find suitable column mappings
+    const findSuitableColumn = (suggestedName, availableCols, isXColumn = false) => {
+      // Direct match
+      if (availableCols.includes(suggestedName)) return suggestedName;
+
+      // Case-insensitive match
+      const lowerSuggested = suggestedName.toLowerCase();
+      const caseInsensitiveMatch = availableCols.find(col => col.toLowerCase() === lowerSuggested);
+      if (caseInsensitiveMatch) return caseInsensitiveMatch;
+
+      // Partial match (contains)
+      const partialMatch = availableCols.find(col =>
+        col.toLowerCase().includes(lowerSuggested) || lowerSuggested.includes(col.toLowerCase())
+      );
+      if (partialMatch) return partialMatch;
+
+      // Common generic aliases only (no domain-specific terms)
+      const aliases = {
+        'name': ['label', 'title', 'category', 'group'],
+        'count': ['total', 'value', 'amount', 'num', 'number'],
+        'value': ['count', 'total', 'amount', 'num'],
+        'category': ['name', 'label', 'group', 'type']
+      };
+
+      const possibleAliases = aliases[lowerSuggested] || [];
+      for (const alias of possibleAliases) {
+        const match = availableCols.find(col => col.toLowerCase() === alias);
+        if (match) return match;
+      }
+
+      // Smart type-based inference as last resort
+      // For x-column (categorical): find the first string column
+      if (isXColumn && (lowerSuggested === 'name' || lowerSuggested === 'category')) {
+        const categoricalCol = availableCols.find(col => {
+          const value = processedData[0][col];
+          // Exclude 'items' as it's likely an array/detail column
+          return typeof value === 'string' && col !== 'items';
+        });
+        if (categoricalCol) return categoricalCol;
+      }
+
+      // For y-column (numeric): find the first numeric column
+      if (!isXColumn && (lowerSuggested === 'count' || lowerSuggested === 'value')) {
+        const numericCol = availableCols.find(col => {
+          const value = processedData[0][col];
+          return typeof value === 'number';
+        });
+        if (numericCol) return numericCol;
+      }
+
+      return null;
+    };
+
+    const mappedX = findSuitableColumn(x_column, availableColumns, true);
+    const mappedY = findSuitableColumn(y_column, availableColumns, false);
+
+    if (mappedX && mappedY) {
+      // Use mapped columns
+      x_column = mappedX;
+      y_column = mappedY;
+    } else {
+      // If we still can't find suitable columns, show error
+      return (
+        <div className="chart-container">
+          <h4 className="chart-title">{title}</h4>
+          <div className="chart-error">
+            Chart columns not found in data: {x_column}, {y_column}<br/>
+            Available columns: {availableColumns.join(', ')}
+          </div>
         </div>
-      </div>
-    );
+      );
+    }
   }
 
   const renderChart = () => {
-    switch (type) {
+    switch (optimizedType) {
       case 'bar':
         // Enhanced tooltip for grouped data
         const renderBarTooltip = (props) => {

@@ -109,6 +109,35 @@ const StreamingMessage = React.memo(({
                 />
               </div>
             )}
+
+            {!isStreaming && (message.suggestedQueries?.length > 0 || message.schemaOverview) && (
+              <div className="guidance-panel fade-in">
+                {message.schemaOverview?.tables?.length > 0 && (
+                  <div className="guidance-section">
+                    <h4>Key datasets I know</h4>
+                    <ul>
+                      {message.schemaOverview.tables.slice(0, 5).map((table) => (
+                        <li key={table.name}>
+                          <strong>{table.name}</strong>
+                          {table.description && <span> — {table.description}</span>}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {message.suggestedQueries?.length > 0 && (
+                  <div className="guidance-section">
+                    <h4>Suggested prompts</h4>
+                    <ul>
+                      {message.suggestedQueries.slice(0, 5).map((suggestion, index) => (
+                        <li key={`${suggestion}-${index}`}>{suggestion}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -126,7 +155,9 @@ StreamingMessage.propTypes = {
     explanation: PropTypes.string,
     visualization_path: PropTypes.string,
     results: PropTypes.any,
-    isError: PropTypes.bool
+    isError: PropTypes.bool,
+    suggestedQueries: PropTypes.arrayOf(PropTypes.string),
+    schemaOverview: PropTypes.object
   }).isRequired,
   isUser: PropTypes.bool.isRequired,
   agentName: PropTypes.string.isRequired,

@@ -180,25 +180,41 @@
   font-weight: 600;
 }
 
-.results-summary {
-  margin-top: 1rem;
-  padding: 0.75rem;
-  background: #f8f9fa;
-  border-radius: 6px;
-  border-left: 3px solid #007bff;
+/* Streaming message utilities */
+@keyframes blink {
+  0%,
+  50% {
+    opacity: 1;
+  }
+
+  51%,
+  100% {
+    opacity: 0;
+  }
 }
 
-.results-summary h4 {
-  margin: 0 0 0.5rem 0;
-  color: #007bff;
-  font-size: 14px;
-  font-weight: 600;
+.cursor-blink {
+  animation: blink 1s infinite;
+  color: #2196F3;
+  font-weight: bold;
 }
 
-.results-summary p {
-  margin: 0;
-  font-size: 13px;
+.skip-streaming-btn {
+  margin-top: 0.5rem;
+  padding: 0.3rem 0.6rem;
+  background: transparent;
   color: #666;
+  border: 1px solid #ddd;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  transition: all 0.2s;
+}
+
+.skip-streaming-btn:hover {
+  background: #f5f5f5;
+  border-color: #999;
+  color: #333;
 }
 
 .visualization {
@@ -232,34 +248,6 @@
   border: 1px solid #e0e0e0;
 }
 
-/* SQL Section Styling */
-.sql-section {
-  margin: 20px 0;
-  padding: 16px;
-  border: 1px solid #e0e0e0;
-  border-radius: 8px;
-  background: #f8f9fa;
-}
-
-.sql-section h4 {
-  margin: 0 0 12px 0;
-  color: #333;
-  font-weight: 600;
-  font-size: 14px;
-}
-
-.sql-code {
-  background: #2d3748;
-  color: #e2e8f0;
-  padding: 16px;
-  border-radius: 6px;
-  overflow-x: auto;
-  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
-  font-size: 14px;
-  line-height: 1.5;
-  margin: 0;
-}
-
 /* Chart placeholder styles removed - now using real Recharts */
 
 /* Responsive design for messages */
@@ -267,4 +255,36 @@
   .message {
     max-width: 90%;
   }
+}
+
+.guidance-panel {
+  margin-top: 1rem;
+  padding: 1rem;
+  background-color: #f4f6fb;
+  border-radius: 8px;
+  border: 1px solid #dce3f5;
+}
+
+.guidance-panel h4 {
+  margin: 0 0 0.5rem 0;
+  font-size: 0.95rem;
+  color: #1f3a8a;
+}
+
+.guidance-panel ul {
+  margin: 0;
+  padding-left: 1rem;
+  list-style: disc;
+  color: #1d1d1f;
+}
+
+.guidance-panel li {
+  margin-bottom: 0.4rem;
+  line-height: 1.4;
+}
+
+.guidance-section + .guidance-section {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px dashed #cdd6f4;
 }

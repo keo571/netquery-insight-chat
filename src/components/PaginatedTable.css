@@ -105,19 +105,3 @@
   border: 1px solid #e9ecef;
   border-radius: 6px;
 }
-
-/* Fade-in animation for new rows */
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(-10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.fade-in {
-  animation: fadeIn 0.3s ease-out;
-}

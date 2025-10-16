@@ -1,23 +1,24 @@
 #!/usr/bin/env python3
-"""
-Backend adapter to bridge Netquery FastAPI server with universal-agent-chat frontend.
-Uses Netquery's new FastAPI endpoints for faster, more reliable communication.
-"""
+"""Backend adapter between the Netquery FastAPI API and the React chat UI."""
 
-import asyncio
 import logging
-import json
 import os
-from typing import Dict, Any, Optional
+import uuid
+from typing import Dict, Any, Optional, List
+from datetime import datetime, timedelta
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 import uvicorn
 import httpx
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Session storage (in-memory for now, can be replaced with Redis/DB)
+sessions: Dict[str, Dict[str, Any]] = {}
+SESSION_TIMEOUT = timedelta(hours=1)
 
 app = FastAPI(title="Universal Agent Chat - Netquery FastAPI Adapter")
 
@@ -32,6 +33,7 @@ app.add_middleware(
 
 class ChatRequest(BaseModel):
     message: str
+    session_id: Optional[str] = None  # Client can provide session ID to continue conversation
 
 class ChatResponse(BaseModel):
     response: str
@@ -40,6 +42,118 @@ class ChatResponse(BaseModel):
     visualization: Optional[dict] = None  # LLM-suggested visualization
     display_info: Optional[dict] = None  # Display guidance for frontend
     query_id: Optional[str] = None  # For download functionality
+    suggested_queries: Optional[List[str]] = None
+    schema_overview: Optional[dict] = None
+    guidance: Optional[bool] = False
+    session_id: str  # Return session ID to client for continuity
+
+
+class SchemaOverviewResponse(BaseModel):
+    schema_id: Optional[str] = None
+    tables: List[Dict[str, Any]] = Field(default_factory=list)
+    suggested_queries: List[str] = Field(default_factory=list)
+
+# Session management functions
+def get_or_create_session(session_id: Optional[str] = None) -> tuple[str, Dict[str, Any]]:
+    """Get existing session or create new one."""
+    # Clean up expired sessions
+    now = datetime.now()
+    expired = [sid for sid, sess in sessions.items()
+               if now - sess['last_activity'] > SESSION_TIMEOUT]
+    for sid in expired:
+        del sessions[sid]
+        logger.info(f"Cleaned up expired session: {sid}")
+
+    if session_id and session_id in sessions:
+        # Return existing session
+        sessions[session_id]['last_activity'] = now
+        return session_id, sessions[session_id]
+
+    # Create new session
+    new_id = str(uuid.uuid4())
+    sessions[new_id] = {
+        'created_at': now,
+        'last_activity': now,
+        'conversation_history': []
+    }
+    logger.info(f"Created new session: {new_id}")
+    return new_id, sessions[new_id]
+
+def add_to_conversation(session_id: str, user_message: str, sql: str, summary: str):
+    """Add a query to the conversation history."""
+    if session_id in sessions:
+        sessions[session_id]['conversation_history'].append({
+            'user_message': user_message,
+            'sql': sql,
+            'summary': summary,
+            'timestamp': datetime.now().isoformat()
+        })
+        # Keep only last 5 exchanges to avoid context length issues
+        if len(sessions[session_id]['conversation_history']) > 5:
+            sessions[session_id]['conversation_history'].pop(0)
+
+def build_context_prompt(session: Dict[str, Any], current_message: str) -> str:
+    """Build a contextualized prompt with conversation history."""
+    history = session.get('conversation_history', [])
+
+    if not history:
+        # No history, return original message
+        return current_message
+
+    # Build context from previous exchanges
+    context_parts = ["CONVERSATION HISTORY - Use this to understand follow-up questions:\n"]
+    for i, exchange in enumerate(history[-3:], 1):  # Last 3 exchanges
+        context_parts.append(
+            f"Exchange {i}:"
+            f"\n  User asked: {exchange['user_message']}"
+            f"\n  SQL query: {exchange['sql']}"
+            f"\n  Results: {exchange['summary']}\n"
+        )
+
+    context_parts.append(f"USER'S NEW QUESTION: {current_message}")
+    context_parts.append("""
+IMPORTANT CONTEXT RULES FOR FOLLOW-UP QUESTIONS:
+
+1. ENTITY DETAILS vs AGGREGATES
+   When user says "show me the [entity]" or "show their names", return entity details NOT aggregates:
+   - ✅ CORRECT: SELECT pool_name FROM pools
+   - ❌ WRONG:   SELECT COUNT(*) FROM pools
+   - ✅ CORRECT: SELECT name FROM load_balancers
+   - ❌ WRONG:   SELECT id FROM load_balancers
+
+2. ADDING INFORMATION ("as well", "also show")
+   Rewrite the previous query to include additional entity details via JOIN:
+   - Previous: SELECT vip_address FROM virtual_ips WHERE...
+   - User: "show me the pool as well"
+   - ✅ CORRECT: SELECT vips.vip_address, pools.pool_name
+                 FROM virtual_ips vips
+                 JOIN wide_ip_pools pools ON vips.id = pools.vip_id
+                 WHERE...
+   - Preserve WHERE/ORDER BY/LIMIT from previous query
+   - If previous query had GROUP BY + COUNT, break the aggregation to show individual rows with entity details
+
+3. REMOVING COLUMNS ("I don't want [column]", "remove the [column]")
+   Remove specified columns from previous SELECT:
+   - If user says "I don't want id", remove ALL id columns (id, vip_id, pool_id, etc.)
+   - If user says "I don't want count", remove aggregate columns
+   - Keep human-readable identifiers (names, addresses, titles)
+
+4. ID/NAME SELECTION RULES
+   - Return ONLY human-readable identifiers (name, address, hostname, title) by default
+   - Do NOT include ID columns UNLESS:
+     a) User explicitly asks for them ("show me the IDs")
+     b) The ID IS the primary identifier (e.g., vip_id when there's no vip_name)
+   - When an entity has both id and name, prefer name ONLY
+
+5. CONTEXT RESOLUTION
+   Use conversation history to resolve references:
+   - "the pool" → wide_ip_pools table from previous query
+   - "their names" → name column of entities in previous query
+   - "those servers" → backend_servers from previous query
+
+Generate SQL that follows these rules based on the conversation context above.""")
+
+    return "\n".join(context_parts)
 
 class NetqueryFastAPIClient:
     """Client to communicate with Netquery FastAPI server."""
@@ -47,18 +161,31 @@ class NetqueryFastAPIClient:
     def __init__(self, base_url: str = None):
         self.base_url = base_url or os.getenv("NETQUERY_API_URL", "http://localhost:8000")
 
-    async def query(self, message: str) -> Dict[str, Any]:
-        """Send query to Netquery FastAPI server and get complete response."""
+    async def query(self, message: str, session: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Send query to Netquery FastAPI server with conversation context."""
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
 
+                # Build context-aware message if we have conversation history
+                contextualized_message = message
+                if session and session.get('conversation_history'):
+                    contextualized_message = build_context_prompt(session, message)
+                    logger.info(f"Using conversation context. History items: {len(session['conversation_history'])}")
+
                 # Step 1: Generate SQL
                 logger.info(f"Generating SQL for: {message[:80]}...")
-                generate_response = await client.post(
-                    f"{self.base_url}/api/generate-sql",
-                    json={"query": message}
-                )
-                generate_response.raise_for_status()
+                try:
+                    generate_response = await client.post(
+                        f"{self.base_url}/api/generate-sql",
+                        json={"query": contextualized_message}
+                    )
+                    generate_response.raise_for_status()
+                except httpx.HTTPStatusError as exc:
+                    if exc.response.status_code == 422:
+                        detail = exc.response.json()
+                        raise SchemaGuidance(detail)
+                    raise
+
                 generate_data = generate_response.json()
 
                 query_id = generate_data["query_id"]
@@ -82,7 +209,6 @@ class NetqueryFastAPIClient:
 
                 # Format the response for the frontend
                 return self._format_response(
-                    message=message,
                     sql=sql,
                     execute_data=execute_data,
                     interpretation_data=interpretation_data,
@@ -96,15 +222,23 @@ class NetqueryFastAPIClient:
             logger.error(f"Netquery client error: {e}")
             raise
 
-    def _format_response(self, message: str, sql: str, execute_data: dict,
+    async def schema_overview(self) -> Dict[str, Any]:
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(f"{self.base_url}/api/schema/overview")
+                response.raise_for_status()
+                return response.json()
+        except Exception as exc:
+            logger.error(f"Schema overview fetch failed: {exc}")
+            raise
+
+    def _format_response(self, sql: str, execute_data: dict,
                         interpretation_data: dict = None, query_id: str = None) -> Dict[str, Any]:
         """Format the API responses into the format expected by the frontend."""
 
         # Extract basic info
         data = execute_data.get("data", [])
         total_count = execute_data.get("total_count")
-        columns = execute_data.get("columns", [])
-        truncated = execute_data.get("truncated", False)
 
         # Create response summary - remove "Found X rows" text
         response_summary = ""
@@ -151,34 +285,120 @@ class NetqueryFastAPIClient:
         # Extract visualization if available
         visualization = interpretation_data.get("visualization") if interpretation_data else None
 
+        schema_overview = None
+        suggested_queries: List[str] = []
+        guidance = False
+
+        if interpretation_data:
+            schema_overview = interpretation_data.get("schema_overview")
+            suggested_queries = interpretation_data.get("suggested_queries") or []
+            guidance = bool(interpretation_data.get("guidance", False))
+
+            interpretation_payload = interpretation_data.get("interpretation", {})
+            if not suggested_queries:
+                suggested_queries = interpretation_payload.get("suggested_queries") or []
+            if schema_overview is None:
+                schema_overview = interpretation_payload.get("schema_overview")
+            guidance = guidance or bool(interpretation_payload.get("guidance", False))
+
+        # Normalise optional fields
+        if schema_overview is not None and not isinstance(schema_overview, dict):
+            schema_overview = None
+        if not isinstance(suggested_queries, list):
+            suggested_queries = []
+
         return {
             "response": response_summary,
             "explanation": explanation,
             "results": display_data,
             "visualization": visualization,
             "display_info": display_info,
-            "query_id": query_id
+            "query_id": query_id,
+            "schema_overview": schema_overview,
+            "suggested_queries": suggested_queries,
+            "guidance": guidance
         }
 
 # Initialize netquery client
 netquery_client = NetqueryFastAPIClient()
 
+
+class SchemaGuidance(Exception):
+    """Raised when Netquery returns schema guidance instead of SQL."""
+
+    def __init__(self, payload: Dict[str, Any]):
+        self.payload = payload
+        super().__init__(payload)
+
 @app.post("/chat", response_model=ChatResponse)
 async def chat_endpoint(request: ChatRequest):
-    """Handle chat requests from the React frontend."""
+    """Handle chat requests from the React frontend with session management."""
     try:
-        logger.info(f"Processing query: {request.message[:80]}...")
+        # Get or create session
+        session_id, session = get_or_create_session(request.session_id)
+        logger.info(f"Processing query (session: {session_id}): {request.message[:80]}...")
 
-        # Query netquery FastAPI server
-        response_data = await netquery_client.query(request.message)
+        # Query netquery FastAPI server with conversation context
+        response_data = await netquery_client.query(request.message, session)
+
+        # Extract SQL and summary for conversation history
+        sql = response_data.get("explanation", "")
+        # Extract SQL from markdown code block
+        import re
+        sql_match = re.search(r'```sql\n(.*?)\n```', sql, re.DOTALL)
+        sql_query = sql_match.group(1) if sql_match else "N/A"
+
+        # Get summary from interpretation
+        summary = response_data.get("response", "") or "Query executed successfully"
+
+        # Add to conversation history
+        add_to_conversation(session_id, request.message, sql_query, summary)
 
         return ChatResponse(
-            response=response_data["response"],
-            explanation=response_data["explanation"],
-            results=response_data["results"],
-            visualization=response_data["visualization"],
-            display_info=response_data["display_info"],
-            query_id=response_data["query_id"]
+            response=response_data.get("response", ""),
+            explanation=response_data.get("explanation", ""),
+            results=response_data.get("results"),
+            visualization=response_data.get("visualization"),
+            display_info=response_data.get("display_info"),
+            query_id=response_data.get("query_id"),
+            suggested_queries=response_data.get("suggested_queries"),
+            schema_overview=response_data.get("schema_overview"),
+            guidance=response_data.get("guidance", False),
+            session_id=session_id  # Return session ID to client
+        )
+
+    except SchemaGuidance as guidance:
+        # Get or create session even for guidance responses
+        session_id, session = get_or_create_session(request.session_id)
+
+        detail = guidance.payload.get("detail", guidance.payload)
+        if isinstance(detail, dict):
+            message = detail.get("message") or detail.get("detail") or "I couldn't map that request to known data."
+            overview = detail.get("schema_overview")
+            suggested = detail.get("suggested_queries")
+            if not suggested and isinstance(overview, dict):
+                suggested = overview.get("suggested_queries")
+        else:
+            message = str(detail)
+            overview = None
+            suggested = None
+
+        if overview is not None and not isinstance(overview, dict):
+            overview = None
+        if suggested is not None and not isinstance(suggested, list):
+            suggested = [str(suggested)]
+
+        return ChatResponse(
+            response=message,
+            explanation="",
+            results=[],
+            visualization=None,
+            display_info=None,
+            query_id=None,
+            suggested_queries=suggested,
+            schema_overview=overview,
+            guidance=True,
+            session_id=session_id
         )
 
     except Exception as e:
@@ -210,6 +430,15 @@ async def health_check():
             "netquery_api": "disconnected",
             "error": str(e)
         }
+
+
+@app.get("/schema/overview", response_model=SchemaOverviewResponse)
+async def schema_overview_endpoint():
+    try:
+        overview = await netquery_client.schema_overview()
+        return SchemaOverviewResponse(**overview)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
 
 if __name__ == "__main__":
     netquery_url = os.getenv("NETQUERY_API_URL", "http://localhost:8000")

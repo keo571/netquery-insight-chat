@@ -1,5 +1,5 @@
 {
-  "name": "universal-agent-chat",
+  "name": "netquery-insight-chat",
   "version": "0.1.0",
   "private": false,
   "description": "React chat interface for Netquery FastAPI server with smart visualizations and progressive disclosure",
@@ -18,13 +18,9 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/keo571/universal-agent-chat.git"
+    "url": "https://github.com/keo571/netquery-insight-chat.git"
   },
   "dependencies": {
-    "@testing-library/dom": "^10.4.0",
-    "@testing-library/jest-dom": "^6.6.3",
-    "@testing-library/react": "^16.3.0",
-    "@testing-library/user-event": "^13.5.0",
     "prop-types": "^15.8.1",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
@@ -41,9 +37,9 @@
     "dev": "npm start",
     "serve": "npx serve -s build -l 3000",
     "build:prod": "npm run build && npm run serve",
-    "backend": "source .venv/bin/activate && python netquery_server.py",
+    "backend": "python netquery_server.py",
     "full-dev": "concurrently \"npm run backend\" \"npm start\"",
-    "clean": "rm -rf build node_modules package-lock.json && npm install"
+    "clean": "rimraf build node_modules && npm install"
   },
   "eslintConfig": {
     "extends": [
@@ -64,7 +60,17 @@
     ]
   },
   "devDependencies": {
+    "@testing-library/dom": "^10.4.0",
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.3.0",
+    "@testing-library/user-event": "^13.5.0",
     "concurrently": "^9.2.1",
-    "gh-pages": "^6.3.0"
+    "gh-pages": "^6.3.0",
+    "rimraf": "^5.0.0"
+  },
+  "jest": {
+    "moduleNameMapper": {
+      "^react-markdown$": "<rootDir>/src/__mocks__/react-markdown.js"
+    }
   }
 }

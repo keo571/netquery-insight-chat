@@ -1,46 +1,35 @@
-# Auto detect text files and perform LF normalization
+# Normalize line endings
 * text=auto
 
-# Documents
-*.md text
-*.txt text
-*.json text
-
-# Source code
+# Source files
 *.js text
 *.jsx text
 *.ts text
 *.tsx text
+*.py text
 *.css text
 *.scss text
 *.html text
-*.py text
-
-# Config files
+*.md text
+*.json text
 *.yml text
 *.yaml text
 *.toml text
 *.ini text
 *.cfg text
+*.svg text
 
-# Images
+# Binary assets
 *.png binary
 *.jpg binary
 *.jpeg binary
 *.gif binary
 *.ico binary
-*.svg text
-
-# Fonts
 *.woff binary
 *.woff2 binary
 *.ttf binary
 *.otf binary
-
-# Archives
 *.zip binary
 *.tar binary
 *.gz binary
-
-# Other
 *.pdf binary

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import './styles/global.css';
 
 // Components
@@ -12,6 +12,7 @@ import {
 
 // Hooks
 import { useChat, useScrollToBottom } from './hooks';
+import { fetchSchemaOverview } from './services/api';
 
 // Utils
 import { AGENT_CONFIG } from './utils/constants';
@@ -22,6 +23,36 @@ function App() {
 
   // Custom hooks
   const { messages, loading, sendMessage } = useChat();
+  const [schemaOverview, setSchemaOverview] = useState(null);
+  const [schemaLoading, setSchemaLoading] = useState(true);
+  const [schemaError, setSchemaError] = useState(null);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadOverview = async () => {
+      try {
+        const data = await fetchSchemaOverview();
+        if (isMounted) {
+          setSchemaOverview(data);
+          setSchemaError(null);
+        }
+      } catch (err) {
+        if (isMounted) {
+          setSchemaError(err.message || 'Failed to load schema overview');
+        }
+      } finally {
+        if (isMounted) {
+          setSchemaLoading(false);
+        }
+      }
+    };
+
+    loadOverview();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
   const messagesEndRef = useScrollToBottom(messages);
 
   const handleSubmit = async (e) => {
@@ -46,6 +77,10 @@ function App() {
             <WelcomeMessage 
               title={AGENT_CONFIG.welcomeTitle}
               message={AGENT_CONFIG.welcomeMessage}
+              tables={schemaOverview?.tables}
+              suggestedQueries={schemaOverview?.suggested_queries}
+              loading={schemaLoading}
+              error={schemaError}
             />
           ) : (
             messages.map((message) => (

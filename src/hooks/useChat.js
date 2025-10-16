@@ -1,9 +1,11 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { queryAgent } from '../services/api';
+import { debugLog } from '../utils/debug';
 
 export const useChat = () => {
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(false);
+  const sessionIdRef = useRef(null); // Track session ID across requests
 
   const sendMessage = useCallback(async (query) => {
     if (!query.trim() || loading) return;
@@ -20,20 +22,35 @@ export const useChat = () => {
     setLoading(true);
 
     try {
-      const result = await queryAgent(query);
-      console.log('API result:', result); // Debug log
+      // Send query with session ID for conversation continuity
+      const result = await queryAgent(query, sessionIdRef.current);
 
+      // Store session ID from response for next request
+      if (result.session_id) {
+        sessionIdRef.current = result.session_id;
+        debugLog('Session ID:', result.session_id);
+      }
+      debugLog('API result:', result);
+
+
+      const hasResponseText = typeof result.response === 'string' && result.response.trim().length > 0;
+      const fallbackGuidance = result.explanation || 'Here are a few topics I can assist with.';
+      const content = hasResponseText
+        ? result.response
+        : (result.guidance ? fallbackGuidance : '');
 
       const agentMessage = {
         id: Date.now() + 1,
-        content: result.response, // Summary response
+        content,
         explanation: result.explanation,
         results: result.results,
-        visualization: result.visualization, // Chart config from backend
-        visualization_path: result.visualization_path, // Legacy image support
-        display_info: result.display_info, // Progressive disclosure info
-        query_id: result.query_id, // For download functionality
-        metadata: result.metadata, // Contains SQL and other metadata
+        visualization: result.visualization,
+        visualization_path: result.visualization_path,
+        display_info: result.display_info,
+        query_id: result.query_id,
+        metadata: result.metadata,
+        suggestedQueries: result.suggested_queries,
+        schemaOverview: result.schema_overview,
         timestamp: new Date().toISOString(),
         isUser: false
       };

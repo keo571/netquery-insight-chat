@@ -2,7 +2,7 @@ import React, { useState, useCallback } from 'react';
 import PropTypes from 'prop-types';
 import './PaginatedTable.css';
 
-const BACKEND_API_URL = 'http://localhost:8000'; // Direct backend connection for downloads
+const BACKEND_API_URL = process.env.REACT_APP_NETQUERY_API_URL || 'http://localhost:8000';
 
 const PaginatedTable = ({ data, pageSize = 10, maxDisplay = 30, displayInfo, queryId }) => {
   const [displayedRows, setDisplayedRows] = useState(pageSize);
@@ -85,7 +85,7 @@ const PaginatedTable = ({ data, pageSize = 10, maxDisplay = 30, displayInfo, que
         <div className="download-buttons">
           {hasFullDataset && queryId ? (
             <button
-              className="download-csv-btn primary"
+              className="download-csv-btn"
               onClick={downloadFullDataset}
               disabled={isDownloading}
               title="Download complete dataset from server"

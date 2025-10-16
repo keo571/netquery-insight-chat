@@ -25,3 +25,37 @@
   line-height: 1.6;
   font-size: 16px;
 }
+
+.welcome-loading {
+  margin-top: 16px;
+  color: #1f3a8a;
+  font-size: 14px;
+}
+
+.welcome-error {
+  margin-top: 16px;
+  color: #b42318;
+  font-size: 14px;
+}
+
+.welcome-section {
+  margin-top: 24px;
+  text-align: left;
+}
+
+.welcome-section h4 {
+  margin: 0 0 8px 0;
+  font-size: 16px;
+  color: #003d82;
+}
+
+.welcome-section ul {
+  margin: 0;
+  padding-left: 20px;
+  color: #333;
+}
+
+.welcome-section li {
+  margin-bottom: 6px;
+  line-height: 1.4;
+}
