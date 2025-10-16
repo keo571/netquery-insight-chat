@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Stop all Universal Agent Chat services
+# Stop all Netquery Insight Chat services
 
 # Colors for output
 GREEN='\033[0;32m'
@@ -10,7 +10,7 @@ RED='\033[0;31m'
 NC='\033[0m' # No Color
 
 echo -e "${BLUE}════════════════════════════════════════════════════════════${NC}"
-echo -e "${BLUE}  Stopping Universal Agent Chat Services${NC}"
+echo -e "${BLUE}  Stopping Netquery Insight Chat Services${NC}"
 echo -e "${BLUE}════════════════════════════════════════════════════════════${NC}"
 echo ""
 

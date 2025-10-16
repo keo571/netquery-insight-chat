@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 sessions: Dict[str, Dict[str, Any]] = {}
 SESSION_TIMEOUT = timedelta(hours=1)
 
-app = FastAPI(title="Universal Agent Chat - Netquery FastAPI Adapter")
+app = FastAPI(title="Netquery Insight Chat - FastAPI Adapter")
 
 # CORS middleware for React frontend
 app.add_middleware(
@@ -444,7 +444,7 @@ if __name__ == "__main__":
     netquery_url = os.getenv("NETQUERY_API_URL", "http://localhost:8000")
     adapter_port = int(os.getenv("ADAPTER_PORT", "8001"))
 
-    print("🚀 Starting Universal Agent Chat - Netquery FastAPI Adapter")
+    print("🚀 Starting Netquery Insight Chat - FastAPI Adapter")
     print(f"📡 Will connect to Netquery API at: {netquery_url}")
     print(f"🌐 Frontend should connect to: http://localhost:{adapter_port}")
     print()

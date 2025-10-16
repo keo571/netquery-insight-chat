@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Development startup script for Universal Agent Chat + Netquery
+# Development startup script for Netquery Insight Chat
 # This script starts all required services without Docker
 
 set -e  # Exit on error
@@ -20,7 +20,7 @@ NETQUERY_PORT="${NETQUERY_PORT:-8000}"
 FRONTEND_PORT="${FRONTEND_PORT:-3000}"
 
 echo -e "${BLUE}════════════════════════════════════════════════════════════${NC}"
-echo -e "${BLUE}  Universal Agent Chat + Netquery - Development Startup${NC}"
+echo -e "${BLUE}  Netquery Insight Chat - Development Startup${NC}"
 echo -e "${BLUE}════════════════════════════════════════════════════════════${NC}"
 echo ""
 

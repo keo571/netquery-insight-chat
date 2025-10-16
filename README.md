@@ -1,4 +1,4 @@
-# Universal Agent Chat + Netquery
+# Netquery Insight Chat
 
 React chat UI for the Netquery FastAPI backend. Ask infrastructure questions in natural language, get contextual SQL with markdown explanations, and surface schema hints when Netquery recommends a different direction.
 

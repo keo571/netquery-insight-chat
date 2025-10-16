@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Check status of all Universal Agent Chat services
+# Check status of all Netquery Insight Chat services
 
 # Colors for output
 GREEN='\033[0;32m'
@@ -10,7 +10,7 @@ RED='\033[0;31m'
 NC='\033[0m' # No Color
 
 echo -e "${BLUE}════════════════════════════════════════════════════════════${NC}"
-echo -e "${BLUE}  Universal Agent Chat - Service Status${NC}"
+echo -e "${BLUE}  Netquery Insight Chat - Service Status${NC}"
 echo -e "${BLUE}════════════════════════════════════════════════════════════${NC}"
 echo ""
 
