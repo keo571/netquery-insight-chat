@@ -12,37 +12,59 @@ React chat UI for the Netquery FastAPI backend. Ask infrastructure questions in 
 ## Requirements
 - Node.js 16+
 - Python 3.9+
-- Local Netquery checkout (defaults to `~/Code/netquery`)
-- PostgreSQL running on `localhost:5432`
+- Local Netquery backend running (from `~/Code/netquery`)
 
 ## Quick Start
+
+**Step 1: Start Netquery Backend** (in separate terminal)
+```bash
+cd ~/Code/netquery
+
+# Choose dev or prod mode
+./start-dev.sh    # Dev mode (SQLite, fast setup)
+# OR
+./start-prod.sh   # Prod mode (PostgreSQL in Docker)
+
+# Then start the API server
+./api-server.sh   # Starts on port 8000
+```
+
+**Step 2: Start Frontend Services** (in this repo)
 ```bash
 cp .env.example .env
 ./dev-start.sh
 ```
-The script checks PostgreSQL, starts Netquery (8000), the adapter (8001), and the React dev server (3000). Visit [http://localhost:3000](http://localhost:3000) when it finishes. Stop everything with `./dev-stop.sh`, or inspect running services and log locations with `./dev-status.sh`.
+
+The frontend script checks that Netquery backend is running, then starts the adapter (8001) and React dev server (3000). Visit [http://localhost:3000](http://localhost:3000) when ready.
+
+**Stop Services:**
+```bash
+./dev-stop.sh         # Stops only frontend (adapter + React)
+# Stop backend separately in ~/Code/netquery with Ctrl+C
+```
+
+**Check Status:**
+```bash
+./dev-status.sh       # Shows status of all services
+```
 
 ### Script Overrides
 ```bash
-# Use development data instead of production
-NETQUERY_ENV=dev ./dev-start.sh
-
 # Override port bindings
-NETQUERY_PORT=8080 ADAPTER_PORT=8081 FRONTEND_PORT=3001 ./dev-start.sh
+ADAPTER_PORT=8081 FRONTEND_PORT=3001 ./dev-start.sh
 
-# Custom Netquery checkout
-NETQUERY_PATH=/path/to/netquery ./dev-start.sh
+# Connect to backend on different port/host
+NETQUERY_API_URL=http://localhost:8080 ./dev-start.sh
 ```
-Process IDs are cached in `/tmp/netquery-insight-chat.pids` for easy manual cleanup.
+Process IDs are cached in `/tmp/netquery-insight-chat.pids` for easy cleanup.
 
 ## Manual Workflow
 If you would rather run each process yourself:
 
-1. **Netquery backend**
+1. **Netquery backend** (see `~/Code/netquery` repo for setup instructions)
     ```bash
     cd ~/Code/netquery
-    source .venv/bin/activate
-    NETQUERY_ENV=prod python -m uvicorn src.api.server:app --reload --port 8000
+    ./api-server.sh
     ```
 2. **Adapter**
     ```bash
@@ -58,49 +80,8 @@ If you would rather run each process yourself:
     npm start
     ```
 
-## PostgreSQL Checklist
-All services assume a local PostgreSQL instance.
-
-### Install / Start
-- **macOS (Homebrew)**
-  ```bash
-  brew install postgresql@16
-  brew services start postgresql@16
-  ```
-- **macOS (Postgres.app)** – install, launch, then click *Initialize*.
-- **Ubuntu / Debian**
-  ```bash
-  sudo apt update
-  sudo apt install postgresql postgresql-contrib
-  sudo systemctl start postgresql
-  sudo systemctl enable postgresql
-  ```
-- **Fedora / RHEL**
-  ```bash
-  sudo dnf install postgresql-server postgresql-contrib
-  sudo postgresql-setup --initdb
-  sudo systemctl start postgresql
-  sudo systemctl enable postgresql
-  ```
-
-Verify connectivity:
-```bash
-pg_isready -h localhost -p 5432
-```
-
-Provision the database if it is missing:
-```bash
-psql postgres
-CREATE USER netquery WITH PASSWORD 'netquery_dev_password';
-CREATE DATABASE netquery OWNER netquery;
-\\q
-```
-
-Prefer SQLite temporarily? Run `NETQUERY_ENV=dev ./dev-start.sh` inside the Netquery repo to use the bundled SQLite database (`data/infrastructure.db`).
-
 ## Logs & Health Checks
 - Adapter log: `tail -f /tmp/netquery-adapter.log`
-- Netquery log: `tail -f /tmp/netquery-backend.log`
 - React log: `tail -f /tmp/react-frontend.log`
 - Adapter health: `curl http://localhost:8001/health`
 - Netquery health: `curl http://localhost:8000/health`
@@ -135,31 +116,37 @@ ADAPTER_PORT=8001
 ```
 
 ## Troubleshooting
-- **Port already in use** – kill the existing listener (`lsof -ti:8000 | xargs kill -9`).
-- **PostgreSQL not running** – repeat the install/start steps above and confirm with `pg_isready`.
-- **Dependency issues** – recreate the Python venv and run `npm run clean` to reinstall Node deps.
-- **Schema overview failing** – ensure Netquery exposes `/api/schema/overview`, then check the adapter log.
+- **Backend not running** – Start Netquery backend first: `cd ~/Code/netquery && ./api-server.sh`
+- **Port already in use** – `./dev-stop.sh` or kill manually: `lsof -ti:8001 | xargs kill -9`
+- **Dependency issues** – Recreate Python venv: `rm -rf .venv && python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt`
+- **Node issues** – Clean reinstall: `npm run clean`
+- **Schema overview failing** – Check Netquery backend is running and healthy: `curl http://localhost:8000/health`
 
 ## Architecture
 ```
 ┌─────────────────┐
-│  React Frontend │  Port 3000
+│  React Frontend │  Port 3000  (This repo)
 └────────┬────────┘
          │
          ↓
 ┌─────────────────┐
-│ Backend Adapter │  Port 8001
+│ Backend Adapter │  Port 8001  (This repo)
 └────────┬────────┘
          │
          ↓
 ┌─────────────────┐
-│ Netquery API    │  Port 8000
+│ Netquery API    │  Port 8000  (~/Code/netquery)
 └────────┬────────┘
          │
          ↓
 ┌─────────────────┐
-│ PostgreSQL      │  Port 5432
+│ PostgreSQL/     │  Port 5432 / SQLite
+│ SQLite          │  (Managed by Netquery backend)
 └─────────────────┘
 ```
+
+**Repository Responsibilities:**
+- **This repo (netquery-insight-chat):** Frontend UI + Chat adapter
+- **~/Code/netquery:** Backend API + SQL generation + Database
 
 Before opening issues or pull requests, copy `.env.example` to `.env`, confirm all services start locally, and keep contributions focused and well described. Happy querying! 🚀

@@ -1,6 +1,8 @@
 #!/bin/bash
 
-# Stop all Netquery Insight Chat services
+# Stop Frontend Services for Netquery Insight Chat
+# This script ONLY stops the frontend adapter and React app
+# The Netquery backend must be stopped separately using its own methods
 
 # Colors for output
 GREEN='\033[0;32m'
@@ -10,7 +12,7 @@ RED='\033[0;31m'
 NC='\033[0m' # No Color
 
 echo -e "${BLUE}════════════════════════════════════════════════════════════${NC}"
-echo -e "${BLUE}  Stopping Netquery Insight Chat Services${NC}"
+echo -e "${BLUE}  Stopping Netquery Insight Chat - Frontend Services${NC}"
 echo -e "${BLUE}════════════════════════════════════════════════════════════${NC}"
 echo ""
 
@@ -27,7 +29,7 @@ if [ -f /tmp/netquery-insight-chat.pids ]; then
     rm /tmp/netquery-insight-chat.pids
 fi
 
-# Kill by port
+# Kill by port (fallback method)
 echo -e "${BLUE}Stopping services by port...${NC}"
 
 # Stop frontend (3000)
@@ -42,17 +44,13 @@ if lsof -Pi :8001 -sTCP:LISTEN -t >/dev/null 2>&1 ; then
     lsof -ti:8001 | xargs kill -9 2>/dev/null || true
 fi
 
-# Stop netquery backend (8000)
-if lsof -Pi :8000 -sTCP:LISTEN -t >/dev/null 2>&1 ; then
-    echo -e "${YELLOW}Stopping Netquery Backend (port 8000)...${NC}"
-    lsof -ti:8000 | xargs kill -9 2>/dev/null || true
-fi
-
 echo ""
-echo -e "${GREEN}✓ All services stopped${NC}"
+echo -e "${GREEN}✓ Frontend services stopped${NC}"
 echo ""
-echo -e "${YELLOW}Note: PostgreSQL is still running. To stop it:${NC}"
-echo "  • macOS (Homebrew): brew services stop postgresql@16"
-echo "  • Linux: sudo systemctl stop postgresql"
-echo "  • macOS (pg_ctl): pg_ctl -D /usr/local/var/postgresql@16 stop"
+echo -e "${YELLOW}Note: Netquery backend is still running (managed separately).${NC}"
+echo -e "${YELLOW}To stop the backend:${NC}"
+echo "  • cd ~/Code/netquery"
+echo "  • Kill the api-server.sh process (Ctrl+C if running in foreground)"
+echo "  • Or: lsof -ti:8000 | xargs kill"
+echo "  • For Docker PostgreSQL: docker compose down"
 echo ""
