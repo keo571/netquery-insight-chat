@@ -48,7 +48,6 @@ export const useChat = () => {
         visualization_path: result.visualization_path,
         display_info: result.display_info,
         query_id: result.query_id,
-        metadata: result.metadata,
         suggestedQueries: result.suggested_queries,
         schemaOverview: result.schema_overview,
         timestamp: new Date().toISOString(),

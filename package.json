@@ -38,7 +38,6 @@
     "serve": "npx serve -s build -l 3000",
     "build:prod": "npm run build && npm run serve",
     "backend": "python netquery_server.py",
-    "full-dev": "concurrently \"npm run backend\" \"npm start\"",
     "clean": "rimraf build node_modules && npm install"
   },
   "eslintConfig": {

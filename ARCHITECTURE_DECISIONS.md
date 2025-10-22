@@ -56,9 +56,23 @@ SESSION_TIMEOUT = timedelta(hours=1)
 ```
 
 Each session stores:
-- Last 5 conversation exchanges (user message, SQL, summary)
+- Last 5 conversation exchanges (user message, SQL query)
 - Creation timestamp and last activity timestamp
 - Auto-cleanup of expired sessions
+
+**Storage Schema:**
+```python
+{
+    'user_message': str,  # User's natural language query
+    'sql': str,          # Generated SQL query (for context)
+    'timestamp': str     # ISO format timestamp
+}
+```
+
+**Note:** We intentionally do NOT store:
+- Result data (frontend already has it)
+- Interpretation summaries (frontend already has it in the explanation field)
+- Row counts or metadata (not useful for LLM context)
 
 **Rationale:**
 - **Simplicity:** No external dependencies (Redis, DB) for initial deployment
@@ -86,33 +100,45 @@ Each session stores:
 Follow-up questions like "show their names" or "remove the id" require understanding previous queries. Netquery's LLM needs conversation history to generate correct SQL.
 
 **Decision:**
-Build context prompts in the adapter ([netquery_server.py:95-156](netquery_server.py#L95-L156)) that include:
-- Last 3 conversation exchanges
-- Explicit rules for common patterns (entity details vs aggregates, adding columns, removing columns)
-- Context resolution guidelines
+Build context prompts in the adapter ([netquery_server.py:100-138](netquery_server.py#L100-L138)) that include:
+- Last 3 conversation exchanges (user message + SQL query)
+- Domain-agnostic context rules for common conversational patterns
+- Clear separation of conversation history and new question
 
-Example context injection:
+**Implementation:**
 ```python
-context_parts = ["CONVERSATION HISTORY:\n"]
-for exchange in history[-3:]:
-    context_parts.append(f"User: {exchange['user_message']}")
-    context_parts.append(f"SQL: {exchange['sql']}")
-context_parts.append(f"NEW QUESTION: {current_message}")
+context_parts = ["CONVERSATION HISTORY - Use this to understand follow-up questions:\n"]
+for i, exchange in enumerate(history[-3:], 1):
+    context_parts.append(
+        f"Exchange {i}:"
+        f"\n  User asked: {exchange['user_message']}"
+        f"\n  SQL query: {exchange['sql']}\n"
+    )
+context_parts.append(f"USER'S NEW QUESTION: {current_message}")
 ```
+
+**Context Rules (Domain-Agnostic):**
+The prompt includes 3 general principles instead of specific examples:
+1. **Resolve references** - "the pool", "those servers" → entities from prior queries
+2. **Preserve intent** - "also show X", "remove Y", "sort by Z" → modify previous query appropriately
+3. **Maintain consistency** - Keep filters, joins, and patterns from previous queries unless explicitly changed
 
 **Rationale:**
 - **Accuracy:** LLM needs previous SQL to understand "as well", "also", "their"
-- **Rule-Based Guidance:** Explicit rules prevent common mistakes (COUNT when user wants entity lists)
-- **Sliding Window:** 3-5 exchanges balance context richness with token limits
+- **Generalization:** Domain-agnostic rules work across different data schemas (not just F5/load balancers)
+- **Sliding Window:** 3 exchanges balance context richness with token limits (5 stored, 3 injected)
+- **Simplicity:** Let LLM infer patterns rather than hardcoding specific rules
 
 **Consequences:**
-- **Positive:** Handles complex follow-ups correctly; explicit rules improve consistency
-- **Negative:** Larger prompts → higher LLM costs; rules need maintenance
-- **Risk:** Context window overflow if exchanges have large SQL queries
+- **Positive:** Works with any domain; simpler prompt; easier to maintain
+- **Negative:** May handle some edge cases less reliably than explicit rules
+- **Trade-off:** Generalizability over prescriptiveness
+- **Risk:** Context window overflow if exchanges have very long SQL queries
 
 **Alternatives Considered:**
-1. **Client-Side Context:** Rejected; would expose prompt engineering to browser
-2. **Vector DB with Embeddings:** Overkill for current scale; added complexity
+1. **Domain-Specific Rules:** Rejected; too brittle and doesn't generalize
+2. **Client-Side Context:** Rejected; would expose prompt engineering to browser
+3. **Vector DB with Embeddings:** Overkill for current scale; added complexity
 
 ---
 
@@ -409,6 +435,51 @@ class ChatResponse(BaseModel):
 | Database | PostgreSQL | 16+ | Robust, well-supported, JSON support |
 | Dev Server | uvicorn | 0.36.0 | ASGI server for FastAPI |
 | Process Mgmt | Bash scripts | Native | Simple, transparent, no orchestration overhead |
+
+---
+
+## ADR-011: Raw SQL Response Field
+
+**Status:** Accepted (2025-10-21)
+
+**Context:**
+The adapter was generating SQL query explanations in markdown format (``sql...```), then parsing the SQL back out with regex for conversation history storage. This was fragile, inefficient, and added unnecessary complexity.
+
+**Problem:**
+```python
+# Backend formats SQL in markdown
+explanation = f"**SQL Query:**\n```sql\n{sql}\n```\n\n"
+
+# Then extracts it back with regex
+sql_match = re.search(r'```sql\n(.*?)\n```', sql, re.DOTALL)
+sql_query = sql_match.group(1) if sql_match else "N/A"
+```
+
+**Decision:**
+Add raw `sql` field to `_format_response()` return value ([netquery_server.py:287-298](netquery_server.py#L287-L298)):
+```python
+return {
+    "sql": sql,          # Raw SQL query (no markdown)
+    "explanation": explanation,  # Formatted markdown (includes SQL)
+    ...
+}
+```
+
+**Rationale:**
+- **Simplicity:** Direct access to SQL without parsing
+- **Reliability:** No regex failures if markdown format changes
+- **Performance:** One less operation per request
+- **Clarity:** Separation of concerns (raw data vs formatted presentation)
+
+**Consequences:**
+- **Positive:** Cleaner code, more reliable, easier to maintain
+- **Negative:** Slight increase in response payload size (~100 bytes per response)
+- **Migration:** No breaking changes; frontend can ignore the new field
+
+**Related Cleanup:**
+- Removed redundant `response_summary` field (always empty)
+- Simplified field extraction logic in `_format_response()` (reduced from 18 to 12 lines)
+- Unified validation pattern for schema_overview and suggested_queries
 
 ---
 

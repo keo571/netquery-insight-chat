@@ -79,13 +79,18 @@ def get_or_create_session(session_id: Optional[str] = None) -> tuple[str, Dict[s
     logger.info(f"Created new session: {new_id}")
     return new_id, sessions[new_id]
 
-def add_to_conversation(session_id: str, user_message: str, sql: str, summary: str):
-    """Add a query to the conversation history."""
+def add_to_conversation(session_id: str, user_message: str, sql: str):
+    """Add a query to the conversation history.
+
+    Args:
+        session_id: Session identifier
+        user_message: User's natural language query
+        sql: Generated SQL query
+    """
     if session_id in sessions:
         sessions[session_id]['conversation_history'].append({
             'user_message': user_message,
             'sql': sql,
-            'summary': summary,
             'timestamp': datetime.now().isoformat()
         })
         # Keep only last 5 exchanges to avoid context length issues
@@ -106,52 +111,29 @@ def build_context_prompt(session: Dict[str, Any], current_message: str) -> str:
         context_parts.append(
             f"Exchange {i}:"
             f"\n  User asked: {exchange['user_message']}"
-            f"\n  SQL query: {exchange['sql']}"
-            f"\n  Results: {exchange['summary']}\n"
+            f"\n  SQL query: {exchange['sql']}\n"
         )
 
     context_parts.append(f"USER'S NEW QUESTION: {current_message}")
     context_parts.append("""
-IMPORTANT CONTEXT RULES FOR FOLLOW-UP QUESTIONS:
+CONTEXT RULES FOR FOLLOW-UP QUESTIONS:
 
-1. ENTITY DETAILS vs AGGREGATES
-   When user says "show me the [entity]" or "show their names", return entity details NOT aggregates:
-   - ✅ CORRECT: SELECT pool_name FROM pools
-   - ❌ WRONG:   SELECT COUNT(*) FROM pools
-   - ✅ CORRECT: SELECT name FROM load_balancers
-   - ❌ WRONG:   SELECT id FROM load_balancers
+When the user's question builds on previous queries, use the conversation history to:
 
-2. ADDING INFORMATION ("as well", "also show")
-   Rewrite the previous query to include additional entity details via JOIN:
-   - Previous: SELECT vip_address FROM virtual_ips WHERE...
-   - User: "show me the pool as well"
-   - ✅ CORRECT: SELECT vips.vip_address, pools.pool_name
-                 FROM virtual_ips vips
-                 JOIN wide_ip_pools pools ON vips.id = pools.vip_id
-                 WHERE...
-   - Preserve WHERE/ORDER BY/LIMIT from previous query
-   - If previous query had GROUP BY + COUNT, break the aggregation to show individual rows with entity details
+1. Resolve references to entities, tables, or columns mentioned previously
+   - "the pool", "those servers", "their names" should reference entities from prior queries
 
-3. REMOVING COLUMNS ("I don't want [column]", "remove the [column]")
-   Remove specified columns from previous SELECT:
-   - If user says "I don't want id", remove ALL id columns (id, vip_id, pool_id, etc.)
-   - If user says "I don't want count", remove aggregate columns
-   - Keep human-readable identifiers (names, addresses, titles)
+2. Preserve the user's intent when modifying queries
+   - "also show X" or "as well" → add columns/joins to previous query while preserving filters
+   - "remove X" or "don't show Y" → exclude specified columns from previous SELECT
+   - "sort by X instead" → keep same data but change ORDER BY clause
 
-4. ID/NAME SELECTION RULES
-   - Return ONLY human-readable identifiers (name, address, hostname, title) by default
-   - Do NOT include ID columns UNLESS:
-     a) User explicitly asks for them ("show me the IDs")
-     b) The ID IS the primary identifier (e.g., vip_id when there's no vip_name)
-   - When an entity has both id and name, prefer name ONLY
+3. Maintain consistency with previous query patterns
+   - If previous query returned detail rows, continue returning details unless user requests aggregation
+   - If previous query used specific filters (WHERE) or limits, preserve them unless explicitly changed
+   - If previous query joined certain tables, reuse those relationships when relevant
 
-5. CONTEXT RESOLUTION
-   Use conversation history to resolve references:
-   - "the pool" → wide_ip_pools table from previous query
-   - "their names" → name column of entities in previous query
-   - "those servers" → backend_servers from previous query
-
-Generate SQL that follows these rules based on the conversation context above.""")
+Generate SQL that naturally continues the conversation based on the context above.""")
 
     return "\n".join(context_parts)
 
@@ -240,9 +222,6 @@ class NetqueryFastAPIClient:
         data = execute_data.get("data", [])
         total_count = execute_data.get("total_count")
 
-        # Create response summary - remove "Found X rows" text
-        response_summary = ""
-
         # Build explanation
         explanation = f"**SQL Query:**\n```sql\n{sql}\n```\n\n"
 
@@ -282,34 +261,33 @@ class NetqueryFastAPIClient:
             "total_in_dataset": total_count if total_count is not None else "1000+"
         }
 
-        # Extract visualization if available
-        visualization = interpretation_data.get("visualization") if interpretation_data else None
-
+        # Extract optional fields from interpretation data
+        visualization = None
         schema_overview = None
-        suggested_queries: List[str] = []
+        suggested_queries = []
         guidance = False
 
         if interpretation_data:
+            visualization = interpretation_data.get("visualization")
             schema_overview = interpretation_data.get("schema_overview")
             suggested_queries = interpretation_data.get("suggested_queries") or []
-            guidance = bool(interpretation_data.get("guidance", False))
+            guidance = interpretation_data.get("guidance", False)
 
-            interpretation_payload = interpretation_data.get("interpretation", {})
-            if not suggested_queries:
-                suggested_queries = interpretation_payload.get("suggested_queries") or []
-            if schema_overview is None:
-                schema_overview = interpretation_payload.get("schema_overview")
-            guidance = guidance or bool(interpretation_payload.get("guidance", False))
+            # Fallback to nested interpretation payload if top-level fields are missing
+            if not any([schema_overview, suggested_queries]):
+                interp_payload = interpretation_data.get("interpretation", {})
+                schema_overview = schema_overview or interp_payload.get("schema_overview")
+                suggested_queries = suggested_queries or interp_payload.get("suggested_queries") or []
+                guidance = guidance or interp_payload.get("guidance", False)
 
-        # Normalise optional fields
-        if schema_overview is not None and not isinstance(schema_overview, dict):
-            schema_overview = None
-        if not isinstance(suggested_queries, list):
-            suggested_queries = []
+        # Validate and normalize field types
+        schema_overview = schema_overview if isinstance(schema_overview, dict) else None
+        suggested_queries = suggested_queries if isinstance(suggested_queries, list) else []
 
         return {
-            "response": response_summary,
+            "response": "",  # Empty for now, interpretation is in explanation
             "explanation": explanation,
+            "sql": sql,  # Raw SQL query (no markdown wrapping)
             "results": display_data,
             "visualization": visualization,
             "display_info": display_info,
@@ -341,18 +319,13 @@ async def chat_endpoint(request: ChatRequest):
         # Query netquery FastAPI server with conversation context
         response_data = await netquery_client.query(request.message, session)
 
-        # Extract SQL and summary for conversation history
-        sql = response_data.get("explanation", "")
-        # Extract SQL from markdown code block
-        import re
-        sql_match = re.search(r'```sql\n(.*?)\n```', sql, re.DOTALL)
-        sql_query = sql_match.group(1) if sql_match else "N/A"
+        # Get SQL for conversation history (already available as separate field)
+        sql_query = response_data.get("sql", "")
 
-        # Get summary from interpretation
-        summary = response_data.get("response", "") or "Query executed successfully"
-
-        # Add to conversation history
-        add_to_conversation(session_id, request.message, sql_query, summary)
+        # Add to conversation history (store ORIGINAL message, not contextualized version)
+        # This prevents context rules from being duplicated in future exchanges
+        if sql_query:  # Only add if we have valid SQL
+            add_to_conversation(session_id, request.message, sql_query)
 
         return ChatResponse(
             response=response_data.get("response", ""),
@@ -371,22 +344,25 @@ async def chat_endpoint(request: ChatRequest):
         # Get or create session even for guidance responses
         session_id, session = get_or_create_session(request.session_id)
 
+        # Extract guidance details
         detail = guidance.payload.get("detail", guidance.payload)
+
         if isinstance(detail, dict):
             message = detail.get("message") or detail.get("detail") or "I couldn't map that request to known data."
-            overview = detail.get("schema_overview")
-            suggested = detail.get("suggested_queries")
-            if not suggested and isinstance(overview, dict):
-                suggested = overview.get("suggested_queries")
+            schema_overview = detail.get("schema_overview")
+            suggested_queries = detail.get("suggested_queries")
+
+            # Fallback to nested schema_overview if top-level is missing
+            if not suggested_queries and isinstance(schema_overview, dict):
+                suggested_queries = schema_overview.get("suggested_queries")
         else:
             message = str(detail)
-            overview = None
-            suggested = None
+            schema_overview = None
+            suggested_queries = None
 
-        if overview is not None and not isinstance(overview, dict):
-            overview = None
-        if suggested is not None and not isinstance(suggested, list):
-            suggested = [str(suggested)]
+        # Validate and normalize field types (reuse same logic as _format_response)
+        schema_overview = schema_overview if isinstance(schema_overview, dict) else None
+        suggested_queries = suggested_queries if isinstance(suggested_queries, list) else []
 
         return ChatResponse(
             response=message,
@@ -395,8 +371,8 @@ async def chat_endpoint(request: ChatRequest):
             visualization=None,
             display_info=None,
             query_id=None,
-            suggested_queries=suggested,
-            schema_overview=overview,
+            suggested_queries=suggested_queries,
+            schema_overview=schema_overview,
             guidance=True,
             session_id=session_id
         )

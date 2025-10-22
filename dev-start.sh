@@ -44,6 +44,10 @@ fi
 echo ""
 echo -e "${BLUE}[2/4] Starting Backend Adapter...${NC}"
 
+# Truncate old logs to prevent indefinite growth
+> /tmp/netquery-adapter.log
+> /tmp/react-frontend.log
+
 # Check adapter virtual environment
 if [ ! -d ".venv" ]; then
     echo -e "${YELLOW}  Creating virtual environment...${NC}"
