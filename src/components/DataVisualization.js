@@ -86,34 +86,15 @@ const DataVisualization = ({ visualization, data }) => {
     }
   }
 
-  // Optimize chart type based on data characteristics
-  let optimizedType = type;
-  const numCategories = processedData.length;
+  // Use the chart type specified by the backend
+  // The backend has more context and should decide the appropriate visualization
+  const chartType = type;
 
-  debugLog('Chart optimization check:', {
-    originalType: type,
-    numCategories,
+  debugLog('Rendering chart:', {
+    type: chartType,
+    numCategories: processedData.length,
     dataColumns: Object.keys(processedData[0])
   });
-
-  // Suggest pie chart for small categorical distributions (2-5 categories with counts)
-  if (type === 'bar' && numCategories >= 2 && numCategories <= 5) {
-    const firstRow = processedData[0];
-    const hasCountColumn = Object.keys(firstRow).some(key =>
-      key.toLowerCase().includes('count') || key.toLowerCase() === 'value'
-    );
-    debugLog('Bar chart with 2-5 categories:', { hasCountColumn, columns: Object.keys(firstRow) });
-    if (hasCountColumn) {
-      optimizedType = 'pie';
-      debugLog('✓ Optimizing chart type: bar → pie (2-5 categories with counts)');
-    }
-  }
-
-  // Keep bar chart for many categories (>5)
-  if (optimizedType === 'pie' && numCategories > 5) {
-    optimizedType = 'bar';
-    debugLog('Keeping bar chart: too many categories for pie chart');
-  }
 
   // Validate that columns exist in processed data
   const firstRow = processedData[0];
@@ -196,7 +177,7 @@ const DataVisualization = ({ visualization, data }) => {
   }
 
   const renderChart = () => {
-    switch (optimizedType) {
+    switch (chartType) {
       case 'bar':
         // Enhanced tooltip for grouped data
         const renderBarTooltip = (props) => {

@@ -1,9 +1,35 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import PropTypes from 'prop-types';
 import ReactMarkdown from 'react-markdown';
 import PaginatedTable from './PaginatedTable';
 import DataVisualization from './DataVisualization';
 import './Message.css';
+
+// Wrapper component that only renders the container if chart is actually rendered
+const ConditionalVisualization = ({ visualization, data }) => {
+  const chartRef = useRef(null);
+  const [shouldRender, setShouldRender] = useState(true);
+
+  // Check if DataVisualization would return null
+  useEffect(() => {
+    if (!visualization || !data || data.length === 0 || visualization.type === 'none') {
+      setShouldRender(false);
+    }
+  }, [visualization, data]);
+
+  if (!shouldRender) {
+    return null;
+  }
+
+  return (
+    <div className="visualization fade-in" ref={chartRef}>
+      <DataVisualization
+        visualization={visualization}
+        data={data}
+      />
+    </div>
+  );
+};
 
 const StreamingMessage = React.memo(({
   message,
@@ -102,12 +128,10 @@ const StreamingMessage = React.memo(({
             )}
 
             {!isStreaming && message.visualization && (
-              <div className="visualization fade-in">
-                <DataVisualization
-                  visualization={message.visualization}
-                  data={message.results}
-                />
-              </div>
+              <ConditionalVisualization
+                visualization={message.visualization}
+                data={message.results}
+              />
             )}
 
             {!isStreaming && (message.suggestedQueries?.length > 0 || message.schemaOverview) && (
