@@ -1,6 +1,6 @@
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8001';
 
-export const queryAgent = async (query, sessionId = null) => {
+export const queryAgent = async (query, sessionId = null, onEvent) => {
     try {
         const requestBody = {
             message: query
@@ -20,13 +20,44 @@ export const queryAgent = async (query, sessionId = null) => {
         });
 
         if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.detail || 'Failed to query agent');
+            throw new Error('Failed to start streaming query');
         }
 
-        return await response.json();
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+            const { done, value } = await reader.read();
+
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+
+            // Keep the last partial line in the buffer
+            buffer = lines.pop() || '';
+
+            for (const line of lines) {
+                if (line.startsWith('data: ')) {
+                    const data = line.slice(6); // Remove 'data: ' prefix
+                    if (data.trim()) {
+                        try {
+                            const event = JSON.parse(data);
+                            onEvent(event);
+
+                            if (event.type === 'done' || event.type === 'error') {
+                                return;
+                            }
+                        } catch (e) {
+                            console.error('Failed to parse SSE data:', e, data);
+                        }
+                    }
+                }
+            }
+        }
     } catch (error) {
-        console.error('API Error:', error);
+        console.error('Streaming API Error:', error);
         throw error;
     }
 };

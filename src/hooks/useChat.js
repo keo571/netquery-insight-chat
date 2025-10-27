@@ -21,40 +21,151 @@ export const useChat = () => {
     setMessages(prev => [...prev, userMessage]);
     setLoading(true);
 
-    try {
-      // Send query with session ID for conversation continuity
-      const result = await queryAgent(query, sessionIdRef.current);
-
-      // Store session ID from response for next request
-      if (result.session_id) {
-        sessionIdRef.current = result.session_id;
-        debugLog('Session ID:', result.session_id);
+    // Create placeholder agent message that will be updated progressively
+    const agentMessageId = Date.now() + 1;
+    const initialAgentMessage = {
+      id: agentMessageId,
+      content: '',
+      explanation: '',
+      results: null,
+      visualization: null,
+      display_info: null,
+      query_id: null,
+      suggestedQueries: [],
+      schemaOverview: null,
+      timestamp: new Date().toISOString(),
+      isUser: false,
+      isLoading: true, // Flag to show loading states
+      loadingStates: {
+        sql: false,
+        data: false,
+        analysis: false,
+        visualization: false
       }
-      debugLog('API result:', result);
+    };
 
+    setMessages(prev => [...prev, initialAgentMessage]);
 
-      const hasResponseText = typeof result.response === 'string' && result.response.trim().length > 0;
-      const fallbackGuidance = result.explanation || 'Here are a few topics I can assist with.';
-      const content = hasResponseText
-        ? result.response
-        : (result.guidance ? fallbackGuidance : '');
+    try {
+      await queryAgent(query, sessionIdRef.current, (event) => {
+        debugLog('Stream event:', event);
 
-      const agentMessage = {
-        id: Date.now() + 1,
-        content,
-        explanation: result.explanation,
-        results: result.results,
-        visualization: result.visualization,
-        visualization_path: result.visualization_path,
-        display_info: result.display_info,
-        query_id: result.query_id,
-        suggestedQueries: result.suggested_queries,
-        schemaOverview: result.schema_overview,
-        timestamp: new Date().toISOString(),
-        isUser: false
-      };
+        switch (event.type) {
+          case 'session':
+            // Store session ID
+            if (event.session_id) {
+              sessionIdRef.current = event.session_id;
+              debugLog('Session ID:', event.session_id);
+            }
+            break;
 
-      setMessages(prev => [...prev, agentMessage]);
+          case 'sql':
+            // Update with SQL and query_id
+            setMessages(prev => prev.map(msg =>
+              msg.id === agentMessageId
+                ? {
+                    ...msg,
+                    explanation: event.explanation,
+                    query_id: event.query_id,
+                    loadingStates: { ...msg.loadingStates, sql: true }
+                  }
+                : msg
+            ));
+            break;
+
+          case 'data':
+            // Update with data results
+            setMessages(prev => prev.map(msg =>
+              msg.id === agentMessageId
+                ? {
+                    ...msg,
+                    results: event.results,
+                    display_info: event.display_info,
+                    loadingStates: { ...msg.loadingStates, data: true }
+                  }
+                : msg
+            ));
+            break;
+
+          case 'analysis':
+            // Append analysis to explanation
+            setMessages(prev => prev.map(msg =>
+              msg.id === agentMessageId
+                ? {
+                    ...msg,
+                    explanation: msg.explanation + event.explanation,
+                    loadingStates: { ...msg.loadingStates, analysis: true }
+                  }
+                : msg
+            ));
+            break;
+
+          case 'visualization':
+            // Update with visualization data
+            setMessages(prev => prev.map(msg =>
+              msg.id === agentMessageId
+                ? {
+                    ...msg,
+                    visualization: event.visualization,
+                    schemaOverview: event.schema_overview,
+                    suggestedQueries: event.suggested_queries,
+                    loadingStates: { ...msg.loadingStates, visualization: true }
+                  }
+                : msg
+            ));
+            break;
+
+          case 'guidance':
+            // Handle guidance response (schema help)
+            setMessages(prev => prev.map(msg =>
+              msg.id === agentMessageId
+                ? {
+                    ...msg,
+                    content: event.message,
+                    schemaOverview: event.schema_overview,
+                    suggestedQueries: event.suggested_queries,
+                    isLoading: false,
+                    loadingStates: {
+                      sql: true,
+                      data: true,
+                      analysis: true,
+                      visualization: true
+                    }
+                  }
+                : msg
+            ));
+            break;
+
+          case 'done':
+            // Mark message as fully loaded
+            setMessages(prev => prev.map(msg =>
+              msg.id === agentMessageId
+                ? { ...msg, isLoading: false }
+                : msg
+            ));
+            setLoading(false);
+            break;
+
+          case 'error':
+            // Handle error
+            setMessages(prev => prev.map(msg =>
+              msg.id === agentMessageId
+                ? {
+                    ...msg,
+                    content: `Error: ${event.message}`,
+                    isError: true,
+                    isLoading: false
+                  }
+                : msg
+            ));
+            setLoading(false);
+            break;
+
+          default:
+            debugLog('Unknown event type:', event.type);
+        }
+      });
+
     } catch (error) {
       const errorMessage = {
         id: Date.now() + 1,
@@ -65,7 +176,6 @@ export const useChat = () => {
       };
 
       setMessages(prev => [...prev, errorMessage]);
-    } finally {
       setLoading(false);
     }
   }, [loading]);

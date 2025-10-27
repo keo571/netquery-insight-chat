@@ -8,9 +8,12 @@ from typing import Dict, Any, Optional, List
 from datetime import datetime, timedelta
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 import uvicorn
 import httpx
+import json
+import asyncio
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -308,81 +311,141 @@ class SchemaGuidance(Exception):
         self.payload = payload
         super().__init__(payload)
 
-@app.post("/chat", response_model=ChatResponse)
+@app.post("/chat")
 async def chat_endpoint(request: ChatRequest):
-    """Handle chat requests from the React frontend with session management."""
-    try:
-        # Get or create session
-        session_id, session = get_or_create_session(request.session_id)
-        logger.info(f"Processing query (session: {session_id}): {request.message[:80]}...")
+    """Handle chat requests with streaming responses - send data immediately, then analysis and viz when ready."""
 
-        # Query netquery FastAPI server with conversation context
-        response_data = await netquery_client.query(request.message, session)
+    async def event_generator():
+        try:
+            # Get or create session
+            session_id, session = get_or_create_session(request.session_id)
+            logger.info(f"Processing streaming query (session: {session_id}): {request.message[:80]}...")
 
-        # Get SQL for conversation history (already available as separate field)
-        sql_query = response_data.get("sql", "")
+            # Send session ID immediately
+            yield f"data: {json.dumps({'type': 'session', 'session_id': session_id})}\n\n"
 
-        # Add to conversation history (store ORIGINAL message, not contextualized version)
-        # This prevents context rules from being duplicated in future exchanges
-        if sql_query:  # Only add if we have valid SQL
-            add_to_conversation(session_id, request.message, sql_query)
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                # Build context-aware message if we have conversation history
+                contextualized_message = request.message
+                if session and session.get('conversation_history'):
+                    contextualized_message = build_context_prompt(session, request.message)
 
-        return ChatResponse(
-            response=response_data.get("response", ""),
-            explanation=response_data.get("explanation", ""),
-            results=response_data.get("results"),
-            visualization=response_data.get("visualization"),
-            display_info=response_data.get("display_info"),
-            query_id=response_data.get("query_id"),
-            suggested_queries=response_data.get("suggested_queries"),
-            schema_overview=response_data.get("schema_overview"),
-            guidance=response_data.get("guidance", False),
-            session_id=session_id  # Return session ID to client
-        )
+                # Step 1: Generate SQL
+                logger.info(f"Generating SQL for: {request.message[:80]}...")
+                try:
+                    generate_response = await client.post(
+                        f"{netquery_client.base_url}/api/generate-sql",
+                        json={"query": contextualized_message}
+                    )
+                    generate_response.raise_for_status()
+                except httpx.HTTPStatusError as exc:
+                    if exc.response.status_code == 422:
+                        detail = exc.response.json().get("detail", {})
+                        # Send guidance response
+                        message = detail.get("message", "I couldn't map that request to known data.")
+                        schema_overview = detail.get("schema_overview")
+                        suggested_queries = detail.get("suggested_queries", [])
 
-    except SchemaGuidance as guidance:
-        # Get or create session even for guidance responses
-        session_id, session = get_or_create_session(request.session_id)
+                        yield f"data: {json.dumps({'type': 'guidance', 'message': message, 'schema_overview': schema_overview, 'suggested_queries': suggested_queries})}\n\n"
+                        yield "data: {\"type\": \"done\"}\n\n"
+                        return
+                    raise
 
-        # Extract guidance details
-        detail = guidance.payload.get("detail", guidance.payload)
+                generate_data = generate_response.json()
+                query_id = generate_data["query_id"]
+                sql = generate_data["sql"]
 
-        if isinstance(detail, dict):
-            message = detail.get("message") or detail.get("detail") or "I couldn't map that request to known data."
-            schema_overview = detail.get("schema_overview")
-            suggested_queries = detail.get("suggested_queries")
+                # Send SQL immediately
+                sql_explanation = f"**SQL Query:**\n```sql\n{sql}\n```\n\n"
+                yield f"data: {json.dumps({'type': 'sql', 'sql': sql, 'query_id': query_id, 'explanation': sql_explanation})}\n\n"
 
-            # Fallback to nested schema_overview if top-level is missing
-            if not suggested_queries and isinstance(schema_overview, dict):
-                suggested_queries = schema_overview.get("suggested_queries")
-        else:
-            message = str(detail)
-            schema_overview = None
-            suggested_queries = None
+                # Step 2: Execute and get data
+                logger.info(f"Executing SQL for query_id: {query_id}")
+                execute_response = await client.get(
+                    f"{netquery_client.base_url}/api/execute/{query_id}"
+                )
+                execute_response.raise_for_status()
+                execute_data = execute_response.json()
 
-        # Validate and normalize field types (reuse same logic as _format_response)
-        schema_overview = schema_overview if isinstance(schema_overview, dict) else None
-        suggested_queries = suggested_queries if isinstance(suggested_queries, list) else []
+                data = execute_data.get("data", [])
+                total_count = execute_data.get("total_count")
 
-        return ChatResponse(
-            response=message,
-            explanation="",
-            results=[],
-            visualization=None,
-            display_info=None,
-            query_id=None,
-            suggested_queries=suggested_queries,
-            schema_overview=schema_overview,
-            guidance=True,
-            session_id=session_id
-        )
+                # Frontend pagination hint
+                initial_display = int(os.getenv("FRONTEND_INITIAL_ROWS", "20"))
+                display_info = {
+                    "total_rows": len(data),
+                    "initial_display": initial_display,
+                    "has_scroll_data": len(data) > initial_display,
+                    "total_in_dataset": total_count if total_count is not None else "1000+"
+                }
 
-    except Exception as e:
-        logger.error(f"Chat endpoint error: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to process query: {str(e)}"
-        )
+                # Send data immediately
+                yield f"data: {json.dumps({'type': 'data', 'results': data, 'display_info': display_info})}\n\n"
+
+                # Step 3: Get interpretation (async, may take time)
+                logger.info(f"Getting interpretation for query_id: {query_id}")
+                interpret_response = await client.post(
+                    f"{netquery_client.base_url}/api/interpret/{query_id}"
+                )
+                interpret_response.raise_for_status()
+                interpretation_data = interpret_response.json()
+
+                # Build analysis explanation
+                analysis_parts = []
+                interp = interpretation_data.get("interpretation", {})
+                summary = interp.get("summary", "")
+                findings = interp.get("key_findings", [])
+
+                if summary:
+                    analysis_parts.append(f"**Summary:**\n{summary}\n\n")
+
+                if findings:
+                    analysis_parts.append("**Key Findings:**\n")
+                    for i, finding in enumerate(findings, 1):
+                        analysis_parts.append(f"{i}. {finding}\n")
+                    analysis_parts.append("\n")
+
+                # Show analysis limitations only when dataset > 100 rows
+                if total_count and total_count > 100:
+                    analysis_parts.append(f"**Analysis Note:** Insights based on first 100 rows of {total_count} rows. Download full dataset for complete analysis.\n\n")
+                elif total_count is None:
+                    analysis_parts.append("**Analysis Note:** Insights based on first 100 rows of more than 1000 rows. Download full dataset for complete analysis.\n\n")
+
+                analysis_explanation = "".join(analysis_parts)
+
+                # Send analysis
+                yield f"data: {json.dumps({'type': 'analysis', 'explanation': analysis_explanation})}\n\n"
+
+                # Extract visualization and other fields
+                visualization = interpretation_data.get("visualization")
+                schema_overview = interpretation_data.get("schema_overview")
+                suggested_queries = interpretation_data.get("suggested_queries") or []
+
+                # Fallback to nested interpretation payload if needed
+                if not any([schema_overview, suggested_queries]):
+                    interp_payload = interpretation_data.get("interpretation", {})
+                    schema_overview = schema_overview or interp_payload.get("schema_overview")
+                    suggested_queries = suggested_queries or interp_payload.get("suggested_queries") or []
+
+                # Validate types
+                schema_overview = schema_overview if isinstance(schema_overview, dict) else None
+                suggested_queries = suggested_queries if isinstance(suggested_queries, list) else []
+
+                # Send visualization
+                yield f"data: {json.dumps({'type': 'visualization', 'visualization': visualization, 'schema_overview': schema_overview, 'suggested_queries': suggested_queries})}\n\n"
+
+                # Add to conversation history
+                if sql:
+                    add_to_conversation(session_id, request.message, sql)
+
+                # Send completion signal
+                yield "data: {\"type\": \"done\"}\n\n"
+
+        except Exception as e:
+            logger.error(f"Streaming chat error: {e}")
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 @app.get("/health")
 async def health_check():
@@ -415,6 +478,35 @@ async def schema_overview_endpoint():
         return SchemaOverviewResponse(**overview)
     except Exception as exc:
         raise HTTPException(status_code=503, detail=str(exc))
+
+
+@app.get("/api/download/{query_id}")
+async def download_csv_endpoint(query_id: str):
+    """Download full dataset as CSV for a given query_id."""
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            # Request full dataset from Netquery API
+            logger.info(f"Downloading full dataset for query_id: {query_id}")
+            response = await client.get(
+                f"{netquery_client.base_url}/api/download/{query_id}"
+            )
+            response.raise_for_status()
+
+            # Forward the CSV response with appropriate headers
+            from fastapi.responses import Response
+            return Response(
+                content=response.content,
+                media_type="text/csv",
+                headers={
+                    "Content-Disposition": f'attachment; filename="query_results_{query_id[:8]}_{datetime.now().strftime("%Y-%m-%d")}.csv"'
+                }
+            )
+    except httpx.HTTPStatusError as e:
+        logger.error(f"Download failed for query_id {query_id}: {e}")
+        raise HTTPException(status_code=e.response.status_code, detail=f"Download failed: {str(e)}")
+    except Exception as e:
+        logger.error(f"Download error for query_id {query_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Download error: {str(e)}")
 
 if __name__ == "__main__":
     netquery_url = os.getenv("NETQUERY_API_URL", "http://localhost:8000")

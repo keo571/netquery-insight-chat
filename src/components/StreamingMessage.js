@@ -109,7 +109,13 @@ const StreamingMessage = React.memo(({
               </div>
             )}
 
-            {!isStreaming && message.results && (
+            {/* Data section - show immediately when available or loading state */}
+            {message.isLoading && !message.loadingStates?.data ? (
+              <div className="loading-section fade-in">
+                <div className="loading-spinner"></div>
+                <span>Loading data...</span>
+              </div>
+            ) : message.results && (
               <div className="results-table fade-in">
                 <PaginatedTable
                   data={message.results}
@@ -121,13 +127,26 @@ const StreamingMessage = React.memo(({
               </div>
             )}
 
-            {!isStreaming && message.explanation && (
+            {/* Explanation section - show SQL immediately, then analysis when ready */}
+            {message.explanation && (
               <div className={`explanation fade-in ${!displayedContent && !message.visualization_path ? 'no-border' : ''}`}>
                 <ReactMarkdown>{message.explanation}</ReactMarkdown>
+                {message.isLoading && message.loadingStates?.data && !message.loadingStates?.analysis && (
+                  <div className="loading-inline">
+                    <div className="loading-spinner-small"></div>
+                    <span>Analyzing results...</span>
+                  </div>
+                )}
               </div>
             )}
 
-            {!isStreaming && message.visualization && (
+            {/* Visualization section - show loading state until ready */}
+            {message.isLoading && message.loadingStates?.data && !message.loadingStates?.visualization ? (
+              <div className="loading-section fade-in">
+                <div className="loading-spinner"></div>
+                <span>Generating visualization...</span>
+              </div>
+            ) : message.visualization && (
               <ConditionalVisualization
                 visualization={message.visualization}
                 data={message.results}

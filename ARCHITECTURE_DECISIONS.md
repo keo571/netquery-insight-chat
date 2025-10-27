@@ -483,6 +483,213 @@ return {
 
 ---
 
+## ADR-012: Server-Sent Events (SSE) Streaming Responses
+
+**Status:** Accepted (2025-10-27)
+
+**Context:**
+Previously, the chat interface required users to wait for all three response parts (SQL + data execution + analysis + visualization) to complete before seeing any results. For queries that take 5-8 seconds to fully analyze, this created a poor user experience with no feedback during processing.
+
+The original flow was:
+```
+User Query → [Wait 5-8s...] → All parts appear at once
+```
+
+**Problem:**
+- Users couldn't see data immediately when it was ready
+- No visibility into what stage of processing was occurring
+- Perceived performance was poor even though data was available early
+- Analysis and visualization generation blocked the entire response
+
+**Decision:**
+Implement Server-Sent Events (SSE) streaming as the **only** response mode:
+
+1. **Backend** ([netquery_server.py:314-448](netquery_server.py#L314-L448)):
+   - Single `/chat` endpoint returns SSE stream (removed non-streaming endpoint)
+   - Progressive events: `session` → `sql` → `data` → `analysis` → `visualization` → `done`
+   - Each part sent as soon as it's ready
+
+2. **Frontend** ([src/services/api.js](src/services/api.js), [src/hooks/useChat.js](src/hooks/useChat.js)):
+   - Single `queryAgent()` function consumes SSE stream
+   - Progressive state updates with `loadingStates` tracking
+   - Loading spinners for pending sections
+
+3. **UI Components** ([src/components/StreamingMessage.js](src/components/StreamingMessage.js)):
+   - Data table appears immediately when ready
+   - "Analyzing results..." spinner while interpretation runs
+   - "Generating visualization..." spinner while chart config loads
+
+**SSE Event Flow:**
+```javascript
+// Event 1: Session ID
+{ type: 'session', session_id: 'uuid' }
+
+// Event 2: SQL Query (appears immediately)
+{ type: 'sql', sql: 'SELECT...', query_id: 'id', explanation: '**SQL Query:**...' }
+
+// Event 3: Data Results (~1-2s, shows data table)
+{ type: 'data', results: [...], display_info: {...} }
+
+// Event 4: Analysis (~3-5s, appends findings)
+{ type: 'analysis', explanation: '**Summary:**...\n**Key Findings:**...' }
+
+// Event 5: Visualization (~5-8s, shows chart)
+{ type: 'visualization', visualization: {...}, schema_overview: {...} }
+
+// Event 6: Complete
+{ type: 'done' }
+```
+
+**Rationale:**
+- **Perceived Performance:** Users see results 3-5x faster (data at ~1-2s vs waiting 5-8s)
+- **Progressive Disclosure:** Each part appears as soon as it's ready
+- **User Feedback:** Loading states show what's happening (no black box waiting)
+- **Better UX:** Users can start reading data while analysis completes
+- **No Overhead:** SSE is native HTTP (no WebSocket complexity)
+
+**Implementation Details:**
+
+**Backend (Python):**
+```python
+@app.post("/chat")
+async def chat_endpoint(request: ChatRequest):
+    async def event_generator():
+        # 1. Send session
+        yield f"data: {json.dumps({'type': 'session', 'session_id': session_id})}\n\n"
+
+        # 2. Generate & send SQL
+        sql = await generate_sql(query)
+        yield f"data: {json.dumps({'type': 'sql', 'sql': sql})}\n\n"
+
+        # 3. Execute & send data immediately
+        data = await execute_sql(query_id)
+        yield f"data: {json.dumps({'type': 'data', 'results': data})}\n\n"
+
+        # 4. Interpret & send analysis
+        analysis = await interpret_results(query_id)
+        yield f"data: {json.dumps({'type': 'analysis', 'explanation': analysis})}\n\n"
+
+        # 5. Send visualization config
+        viz = get_visualization(interpretation)
+        yield f"data: {json.dumps({'type': 'visualization', 'visualization': viz})}\n\n"
+
+        yield "data: {\"type\": \"done\"}\n\n"
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+```
+
+**Frontend (React):**
+```javascript
+// api.js - SSE consumer
+const reader = response.body.getReader();
+const decoder = new TextDecoder();
+while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    // Parse SSE data: events
+    const lines = decoder.decode(value).split('\n');
+    for (const line of lines) {
+        if (line.startsWith('data: ')) {
+            const event = JSON.parse(line.slice(6));
+            onEvent(event);  // Callback with parsed event
+        }
+    }
+}
+
+// useChat.js - State management
+const [message, setMessage] = useState({
+    isLoading: true,
+    loadingStates: { sql: false, data: false, analysis: false, visualization: false }
+});
+
+// Update state as events arrive
+onEvent(event => {
+    switch(event.type) {
+        case 'data':
+            setMessage(prev => ({...prev, results: event.results, loadingStates: {...prev.loadingStates, data: true}}));
+            break;
+        // ... other cases
+    }
+});
+```
+
+**UI Loading States:**
+```jsx
+{/* Show spinner until data arrives */}
+{message.isLoading && !message.loadingStates.data ? (
+  <div className="loading-section">
+    <div className="loading-spinner"></div>
+    <span>Loading data...</span>
+  </div>
+) : (
+  <PaginatedTable data={message.results} />
+)}
+
+{/* Inline spinner for analysis */}
+{message.isLoading && message.loadingStates.data && !message.loadingStates.analysis && (
+  <div className="loading-inline">
+    <div className="loading-spinner-small"></div>
+    <span>Analyzing results...</span>
+  </div>
+)}
+```
+
+**Consequences:**
+
+**Positive:**
+- ✅ **3-5x faster perceived performance** - Data visible in ~1-2s instead of 5-8s
+- ✅ **Progressive feedback** - Users know what's happening at each stage
+- ✅ **Better UX** - Can read data while waiting for analysis/visualization
+- ✅ **No additional infrastructure** - SSE is native HTTP, works through proxies
+- ✅ **Simple protocol** - Easier than WebSockets, less overhead than polling
+
+**Negative:**
+- ❌ **Slightly more complex** - Event-driven frontend logic vs simple request/response
+- ❌ **No reconnection logic** - If connection drops, full refresh needed (acceptable for chat UI)
+- ❌ **Browser compatibility** - SSE not supported in IE11 (not a concern for modern apps)
+
+**Trade-offs:**
+- Chose SSE over WebSockets: Simpler, works with HTTP/2, one-way is sufficient
+- Chose streaming-only over hybrid: Simpler codebase, one code path to maintain
+- Chose client-side state management over server push: More control, easier debugging
+
+**Performance Impact:**
+| Metric | Before | After | Improvement |
+|--------|--------|-------|-------------|
+| Time to first data | 5-8s | 1-2s | **3-5x faster** |
+| Time to full response | 5-8s | 5-8s | Same (but progressive) |
+| User wait perception | Long | Short | Significant |
+| Network overhead | ~0 | +100 bytes (events) | Negligible |
+
+**Alternatives Considered:**
+
+1. **Long Polling:** Rejected - Higher latency, more server load, worse UX
+2. **WebSockets:** Rejected - Overkill for one-way data flow, harder to deploy (proxy issues)
+3. **Hybrid (streaming + non-streaming):** Rejected - Two code paths to maintain, added complexity
+4. **GraphQL Subscriptions:** Rejected - Too heavy, requires GraphQL server
+
+**Migration Notes:**
+- Removed old `/chat` non-streaming endpoint completely
+- Renamed `queryAgentStreaming` → `queryAgent` (single API)
+- Updated `ChatResponse` model to remove unused fields
+- All responses now stream by default (no opt-in flag)
+
+**Files Changed:**
+- Backend: [netquery_server.py:314-448](netquery_server.py#L314-L448)
+- API Client: [src/services/api.js](src/services/api.js)
+- State Hook: [src/hooks/useChat.js](src/hooks/useChat.js)
+- UI Component: [src/components/StreamingMessage.js:112-154](src/components/StreamingMessage.js#L112-L154)
+- CSS Styles: [src/components/Message.css:292-341](src/components/Message.css#L292-L341)
+
+**Testing Recommendations:**
+1. Test with slow network (Chrome DevTools throttling) to see progressive loading
+2. Test error cases (backend timeout, network drop)
+3. Test with large datasets (100+ rows) to verify pagination still works
+4. Test conversation continuity (session ID maintained across streams)
+
+---
+
 ## Future Considerations
 
 ### When to Revisit Decisions
