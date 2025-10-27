@@ -235,19 +235,19 @@ class NetqueryFastAPIClient:
             findings = interp.get("key_findings", [])
 
             if summary:
-                explanation += f"**Summary:**\n{summary}\n\n"
+                explanation += f"**Summary:**\n\n{summary}\n\n"
 
             if findings:
-                explanation += "**Key Findings:**\n"
+                explanation += "**Key Findings:**\n\n"
                 for i, finding in enumerate(findings, 1):
                     explanation += f"{i}. {finding}\n"
                 explanation += "\n"
 
             # Show analysis limitations only when dataset > 100 rows
             if total_count and total_count > 100:
-                explanation += f"**Analysis Note:** Insights based on first 100 rows of {total_count} rows. Download full dataset for complete analysis.\n\n"
+                explanation += f"**Analysis Note:**\n\nInsights based on first 100 rows of {total_count} rows. Download full dataset for complete analysis.\n\n"
             elif total_count is None:  # >1000 rows case
-                explanation += "**Analysis Note:** Insights based on first 100 rows of more than 1000 rows. Download full dataset for complete analysis.\n\n"
+                explanation += "**Analysis Note:**\n\nInsights based on first 100 rows of more than 1000 rows. Download full dataset for complete analysis.\n\n"
 
 
         # Return all data from backend (no additional limits in adapter)
@@ -380,7 +380,8 @@ async def chat_endpoint(request: ChatRequest):
                 }
 
                 # Send data immediately
-                yield f"data: {json.dumps({'type': 'data', 'results': data, 'display_info': display_info})}\n\n"
+                data_payload = {'type': 'data', 'results': data, 'display_info': display_info}
+                yield f"data: {json.dumps(data_payload)}\n\n"
 
                 # Step 3: Get interpretation (async, may take time)
                 logger.info(f"Getting interpretation for query_id: {query_id}")
@@ -397,24 +398,21 @@ async def chat_endpoint(request: ChatRequest):
                 findings = interp.get("key_findings", [])
 
                 if summary:
-                    analysis_parts.append(f"**Summary:**\n{summary}\n\n")
+                    analysis_parts.append(f"**Summary:**\n\n{summary}\n\n")
 
                 if findings:
-                    analysis_parts.append("**Key Findings:**\n")
+                    analysis_parts.append("**Key Findings:**\n\n")
                     for i, finding in enumerate(findings, 1):
                         analysis_parts.append(f"{i}. {finding}\n")
                     analysis_parts.append("\n")
 
                 # Show analysis limitations only when dataset > 100 rows
                 if total_count and total_count > 100:
-                    analysis_parts.append(f"**Analysis Note:** Insights based on first 100 rows of {total_count} rows. Download full dataset for complete analysis.\n\n")
+                    analysis_parts.append(f"**Analysis Note:**\n\nInsights based on first 100 rows of {total_count} rows. Download full dataset for complete analysis.\n\n")
                 elif total_count is None:
-                    analysis_parts.append("**Analysis Note:** Insights based on first 100 rows of more than 1000 rows. Download full dataset for complete analysis.\n\n")
+                    analysis_parts.append("**Analysis Note:**\n\nInsights based on first 100 rows of more than 1000 rows. Download full dataset for complete analysis.\n\n")
 
                 analysis_explanation = "".join(analysis_parts)
-
-                # Send analysis
-                yield f"data: {json.dumps({'type': 'analysis', 'explanation': analysis_explanation})}\n\n"
 
                 # Extract visualization and other fields
                 visualization = interpretation_data.get("visualization")
@@ -431,8 +429,29 @@ async def chat_endpoint(request: ChatRequest):
                 schema_overview = schema_overview if isinstance(schema_overview, dict) else None
                 suggested_queries = suggested_queries if isinstance(suggested_queries, list) else []
 
-                # Send visualization
-                yield f"data: {json.dumps({'type': 'visualization', 'visualization': visualization, 'schema_overview': schema_overview, 'suggested_queries': suggested_queries})}\n\n"
+                # Send analysis and visualization together (they come from same API call)
+                # This allows showing whichever is available independently
+                interpretation_payload = {
+                    'type': 'interpretation',
+                    'analysis': analysis_explanation,
+                    'visualization': visualization,
+                    'schema_overview': schema_overview,
+                    'suggested_queries': suggested_queries
+                }
+                try:
+                    yield f"data: {json.dumps(interpretation_payload)}\n\n"
+                except (TypeError, ValueError) as json_error:
+                    logger.error(f"JSON serialization error for interpretation: {json_error}")
+                    logger.error(f"Problematic data types - visualization: {type(visualization)}, schema_overview: {type(schema_overview)}, suggested_queries: {type(suggested_queries)}")
+                    # Send without problematic fields
+                    safe_payload = {
+                        'type': 'interpretation',
+                        'analysis': analysis_explanation,
+                        'visualization': None,
+                        'schema_overview': None,
+                        'suggested_queries': []
+                    }
+                    yield f"data: {json.dumps(safe_payload)}\n\n"
 
                 # Add to conversation history
                 if sql:
@@ -484,13 +503,18 @@ async def schema_overview_endpoint():
 async def download_csv_endpoint(query_id: str):
     """Download full dataset as CSV for a given query_id."""
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        # Increase timeout to 5 minutes for large datasets (>1000 rows)
+        async with httpx.AsyncClient(timeout=300.0) as client:
             # Request full dataset from Netquery API
             logger.info(f"Downloading full dataset for query_id: {query_id}")
             response = await client.get(
                 f"{netquery_client.base_url}/api/download/{query_id}"
             )
             response.raise_for_status()
+
+            # Log download size
+            content_length = len(response.content)
+            logger.info(f"Downloaded {content_length} bytes for query_id: {query_id}")
 
             # Forward the CSV response with appropriate headers
             from fastapi.responses import Response
@@ -504,6 +528,9 @@ async def download_csv_endpoint(query_id: str):
     except httpx.HTTPStatusError as e:
         logger.error(f"Download failed for query_id {query_id}: {e}")
         raise HTTPException(status_code=e.response.status_code, detail=f"Download failed: {str(e)}")
+    except httpx.TimeoutException as e:
+        logger.error(f"Download timeout for query_id {query_id}: {e}")
+        raise HTTPException(status_code=504, detail=f"Download timeout - dataset too large or server busy. Please try again.")
     except Exception as e:
         logger.error(f"Download error for query_id {query_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Download error: {str(e)}")

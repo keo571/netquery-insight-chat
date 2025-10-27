@@ -6,7 +6,6 @@ import {
   StreamingMessage,
   ChatInput,
   ImageModal,
-  TypingIndicator,
   WelcomeMessage
 } from './components';
 
@@ -92,10 +91,6 @@ function App() {
                 onImageClick={setSelectedImage}
               />
             ))
-          )}
-
-          {loading && (
-            <TypingIndicator agentName={AGENT_CONFIG.name} />
           )}
 
           <div ref={messagesEndRef} />

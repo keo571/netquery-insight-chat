@@ -690,6 +690,126 @@ onEvent(event => {
 
 ---
 
+## ADR-013: Consistent Section Headers and Formatting
+
+**Status:** Accepted (2025-10-27)
+
+**Context:**
+The chat UI displays various sections (SQL Query, Summary, Key Findings, Analysis Note, Data Preview) with different formatting styles. Some headers appeared inline with their content, while others had inconsistent spacing. This created visual inconsistency and made it harder for users to scan through results quickly.
+
+**Original Format:**
+```
+**SQL Query:**
+```sql
+SELECT ...
+```
+
+**Summary:** The query results show...
+
+**Analysis Note:** Insights based on...
+
+[Table with no header]
+```
+
+**Decision:**
+Standardize all section headers to have their own lines with consistent formatting:
+
+1. **Backend formatting** ([netquery_server.py:238-250, 401-413](netquery_server.py#L238-L250)):
+   - Add blank line after "Summary:" before content
+   - Add blank line after "Key Findings:" before numbered list
+   - Add blank line after "Analysis Note:" before content
+
+2. **Frontend component** ([PaginatedTable.js:92](src/components/PaginatedTable.js#L92)):
+   - Add "Data Preview:" header in its own div above table controls
+   - Style consistently with other section headers
+
+**Updated Format:**
+```
+**SQL Query:**
+```sql
+SELECT ...
+```
+
+**Summary:**
+
+The query results show...
+
+**Key Findings:**
+
+1. First finding
+2. Second finding
+
+**Analysis Note:**
+
+Insights based on...
+
+**Data Preview:**
+[Table with row count and download controls]
+```
+
+**Rationale:**
+- **Visual Consistency:** All section headers follow the same pattern (bold header on own line)
+- **Scannability:** Users can quickly identify sections by scanning for bold headers
+- **Readability:** Whitespace separation makes content easier to parse
+- **Professional:** Matches markdown best practices and documentation standards
+
+**Implementation:**
+```python
+# Backend: Add \n\n after headers
+if summary:
+    explanation += f"**Summary:**\n\n{summary}\n\n"
+
+if findings:
+    explanation += "**Key Findings:**\n\n"
+    for i, finding in enumerate(findings, 1):
+        explanation += f"{i}. {finding}\n"
+```
+
+```jsx
+// Frontend: Separate header div
+<div className="data-preview-header">Data Preview:</div>
+<div className="table-header">
+  {/* Row count and controls */}
+</div>
+```
+
+**CSS Styling:**
+```css
+.data-preview-header {
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+  color: #333;
+}
+```
+
+**Consequences:**
+
+**Positive:**
+- ✅ **Better visual hierarchy** - Clear separation between sections
+- ✅ **Improved scannability** - Users can quickly find relevant sections
+- ✅ **Consistent UX** - All headers follow same pattern
+- ✅ **Professional appearance** - Matches documentation standards
+
+**Negative:**
+- ❌ **Slightly more vertical space** - Headers take an extra line (acceptable trade-off)
+- ❌ **Requires both backend and frontend changes** - Two-layer formatting update
+
+**Trade-offs:**
+- Chose consistency over compactness: Extra whitespace improves readability
+- Chose markdown formatting over React components: Simpler, works with existing markdown renderer
+
+**Files Changed:**
+- Backend: [netquery_server.py:238-250, 401-413](netquery_server.py#L238-L250)
+- Component: [PaginatedTable.js:92](src/components/PaginatedTable.js#L92)
+- Styles: [PaginatedTable.css:5-9](src/components/PaginatedTable.css#L5-L9)
+
+**Related Improvements:**
+- Removed unused `downloadError` state variable in PaginatedTable
+- Added error handling for JSON serialization in streaming endpoint
+- Improved type validation for visualization and schema data
+
+---
+
 ## Future Considerations
 
 ### When to Revisit Decisions

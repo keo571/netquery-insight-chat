@@ -35,39 +35,14 @@ const StreamingMessage = React.memo(({
   message,
   isUser,
   agentName,
-  onImageClick,
-  streamingSpeed = 30  // milliseconds per character
+  onImageClick
 }) => {
   const [displayedContent, setDisplayedContent] = useState('');
-  const [isStreaming, setIsStreaming] = useState(false);
 
   useEffect(() => {
-    if (!isUser && message.content) {
-      setIsStreaming(true);
-      let currentIndex = 0;
-
-      const streamInterval = setInterval(() => {
-        if (currentIndex < message.content.length) {
-          // Add characters in chunks for smoother display
-          const chunkSize = Math.min(3, message.content.length - currentIndex);
-          setDisplayedContent(message.content.slice(0, currentIndex + chunkSize));
-          currentIndex += chunkSize;
-        } else {
-          clearInterval(streamInterval);
-          setIsStreaming(false);
-        }
-      }, streamingSpeed);
-
-      return () => clearInterval(streamInterval);
-    } else if (isUser) {
-      setDisplayedContent(message.content);
-    }
-  }, [message.content, isUser, streamingSpeed]);
-
-  const handleSkipStreaming = () => {
+    // Show content immediately without animation
     setDisplayedContent(message.content);
-    setIsStreaming(false);
-  };
+  }, [message.content]);
 
   return (
     <div className={`message ${isUser ? 'user-message' : 'agent-message'}`}>
@@ -84,21 +59,9 @@ const StreamingMessage = React.memo(({
           <div className="agent-response">
             <div className="response-text">
               <ReactMarkdown>{displayedContent}</ReactMarkdown>
-              {isStreaming && (
-                <span className="cursor-blink">▊</span>
-              )}
             </div>
 
-            {isStreaming && (
-              <button
-                className="skip-streaming-btn"
-                onClick={handleSkipStreaming}
-              >
-                Skip animation
-              </button>
-            )}
-
-            {!isStreaming && message.visualization_path && (
+            {message.visualization_path && (
               <div className="visualization fade-in">
                 <img
                   src={message.visualization_path}
@@ -109,7 +72,14 @@ const StreamingMessage = React.memo(({
               </div>
             )}
 
-            {/* Data section - show immediately when available or loading state */}
+            {/* 1. SQL section - show immediately when available */}
+            {message.sql_explanation && (
+              <div className={`explanation fade-in ${!displayedContent && !message.visualization_path ? 'no-border' : ''}`}>
+                <ReactMarkdown>{message.sql_explanation}</ReactMarkdown>
+              </div>
+            )}
+
+            {/* 2. Data section - show loading or table */}
             {message.isLoading && !message.loadingStates?.data ? (
               <div className="loading-section fade-in">
                 <div className="loading-spinner"></div>
@@ -127,33 +97,30 @@ const StreamingMessage = React.memo(({
               </div>
             )}
 
-            {/* Explanation section - show SQL immediately, then analysis when ready */}
-            {message.explanation && (
-              <div className={`explanation fade-in ${!displayedContent && !message.visualization_path ? 'no-border' : ''}`}>
-                <ReactMarkdown>{message.explanation}</ReactMarkdown>
-                {message.isLoading && message.loadingStates?.data && !message.loadingStates?.analysis && (
-                  <div className="loading-inline">
-                    <div className="loading-spinner-small"></div>
-                    <span>Analyzing results...</span>
-                  </div>
-                )}
+            {/* 3. Analysis & Visualization section - show loading until interpretation completes */}
+            {message.isLoading && message.loadingStates?.data && !message.loadingStates?.analysis && !message.loadingStates?.visualization ? (
+              <div className="loading-section fade-in">
+                <div className="loading-spinner"></div>
+                <span>Analyzing results and generating visualization...</span>
+              </div>
+            ) : null}
+
+            {/* Analysis appears when ready (independent of visualization) */}
+            {message.analysis_explanation && (
+              <div className="explanation fade-in">
+                <ReactMarkdown>{message.analysis_explanation}</ReactMarkdown>
               </div>
             )}
 
-            {/* Visualization section - show loading state until ready */}
-            {message.isLoading && message.loadingStates?.data && !message.loadingStates?.visualization ? (
-              <div className="loading-section fade-in">
-                <div className="loading-spinner"></div>
-                <span>Generating visualization...</span>
-              </div>
-            ) : message.visualization && (
+            {/* Visualization appears when ready (independent of analysis) */}
+            {message.visualization && (
               <ConditionalVisualization
                 visualization={message.visualization}
                 data={message.results}
               />
             )}
 
-            {!isStreaming && (message.suggestedQueries?.length > 0 || message.schemaOverview) && (
+            {(message.suggestedQueries?.length > 0 || message.schemaOverview) && (
               <div className="guidance-panel fade-in">
                 {message.schemaOverview?.tables?.length > 0 && (
                   <div className="guidance-section">
@@ -195,7 +162,8 @@ StreamingMessage.propTypes = {
     id: PropTypes.number.isRequired,
     content: PropTypes.string.isRequired,
     timestamp: PropTypes.string.isRequired,
-    explanation: PropTypes.string,
+    sql_explanation: PropTypes.string,
+    analysis_explanation: PropTypes.string,
     visualization_path: PropTypes.string,
     results: PropTypes.any,
     isError: PropTypes.bool,
@@ -204,8 +172,7 @@ StreamingMessage.propTypes = {
   }).isRequired,
   isUser: PropTypes.bool.isRequired,
   agentName: PropTypes.string.isRequired,
-  onImageClick: PropTypes.func.isRequired,
-  streamingSpeed: PropTypes.number
+  onImageClick: PropTypes.func.isRequired
 };
 
 export default StreamingMessage;

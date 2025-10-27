@@ -26,7 +26,8 @@ export const useChat = () => {
     const initialAgentMessage = {
       id: agentMessageId,
       content: '',
-      explanation: '',
+      sql_explanation: '',
+      analysis_explanation: '',
       results: null,
       visualization: null,
       display_info: null,
@@ -65,7 +66,7 @@ export const useChat = () => {
               msg.id === agentMessageId
                 ? {
                     ...msg,
-                    explanation: event.explanation,
+                    sql_explanation: event.explanation,
                     query_id: event.query_id,
                     loadingStates: { ...msg.loadingStates, sql: true }
                   }
@@ -87,13 +88,34 @@ export const useChat = () => {
             ));
             break;
 
-          case 'analysis':
-            // Append analysis to explanation
+          case 'interpretation':
+            // Handle combined analysis + visualization response
+            // Show whichever is available (graceful degradation)
             setMessages(prev => prev.map(msg =>
               msg.id === agentMessageId
                 ? {
                     ...msg,
-                    explanation: msg.explanation + event.explanation,
+                    analysis_explanation: event.analysis || '',
+                    visualization: event.visualization || null,
+                    schemaOverview: event.schema_overview,
+                    suggestedQueries: event.suggested_queries,
+                    loadingStates: {
+                      ...msg.loadingStates,
+                      analysis: true,
+                      visualization: true
+                    }
+                  }
+                : msg
+            ));
+            break;
+
+          case 'analysis':
+            // Legacy support: Store analysis separately from SQL
+            setMessages(prev => prev.map(msg =>
+              msg.id === agentMessageId
+                ? {
+                    ...msg,
+                    analysis_explanation: event.explanation,
                     loadingStates: { ...msg.loadingStates, analysis: true }
                   }
                 : msg
@@ -101,7 +123,7 @@ export const useChat = () => {
             break;
 
           case 'visualization':
-            // Update with visualization data
+            // Legacy support: Update with visualization data
             setMessages(prev => prev.map(msg =>
               msg.id === agentMessageId
                 ? {

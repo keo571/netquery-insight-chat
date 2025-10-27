@@ -2,6 +2,12 @@
   margin: 1rem 0;
 }
 
+.data-preview-header {
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+  color: #333;
+}
+
 .table-header {
   display: flex;
   justify-content: space-between;

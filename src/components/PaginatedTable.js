@@ -18,9 +18,20 @@ const PaginatedTable = ({ data, pageSize = 10, maxDisplay = 30, displayInfo, que
 
     setIsDownloading(true);
     try {
-      const response = await fetch(`${BACKEND_API_URL}/api/download/${queryId}`);
+      console.log(`Requesting download for query_id: ${queryId}`);
+      const response = await fetch(`${BACKEND_API_URL}/api/download/${queryId}`, {
+        method: 'GET',
+        headers: {
+          'Accept': 'text/csv'
+        }
+      });
+
+      console.log(`Download response status: ${response.status}`);
+
       if (response.ok) {
         const blob = await response.blob();
+        console.log(`Download blob size: ${blob.size} bytes`);
+
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.style.display = 'none';
@@ -30,11 +41,16 @@ const PaginatedTable = ({ data, pageSize = 10, maxDisplay = 30, displayInfo, que
         a.click();
         window.URL.revokeObjectURL(url);
         document.body.removeChild(a);
+        console.log('Download completed successfully');
       } else {
-        console.error('Download failed');
+        const errorText = await response.text();
+        const errorMsg = `Download failed: ${response.status} ${response.statusText}`;
+        console.error(errorMsg, errorText);
+        alert(`Download failed: ${response.status} - ${errorText || response.statusText}`);
       }
     } catch (error) {
       console.error('Download error:', error);
+      alert(`Download error: ${error.message}. Please check browser console for details.`);
     } finally {
       setIsDownloading(false);
     }
@@ -73,6 +89,8 @@ const PaginatedTable = ({ data, pageSize = 10, maxDisplay = 30, displayInfo, que
 
   return (
     <div className="paginated-table-container">
+      <div className="data-preview-header">Data Preview:</div>
+
       <div className="table-header">
         <span className="row-info">
           Showing {visibleData.length} of {totalRows} rows
