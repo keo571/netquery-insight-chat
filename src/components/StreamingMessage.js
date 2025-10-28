@@ -8,24 +8,23 @@ import './Message.css';
 // Wrapper component that only renders the container if chart is actually rendered
 const ConditionalVisualization = ({ visualization, data }) => {
   const chartRef = useRef(null);
-  const [shouldRender, setShouldRender] = useState(true);
 
-  // Check if DataVisualization would return null
-  useEffect(() => {
-    if (!visualization || !data || data.length === 0 || visualization.type === 'none') {
-      setShouldRender(false);
-    }
-  }, [visualization, data]);
-
-  if (!shouldRender) {
+  if (!visualization || visualization.type === 'none') {
     return null;
   }
 
+  const processedData = visualization.data && visualization.data.length > 0 ? visualization.data : data;
+
+  if (!processedData || processedData.length === 0) {
+    return null;
+  }
+
+  // All validations passed - render the chart with container
   return (
     <div className="visualization fade-in" ref={chartRef}>
       <DataVisualization
         visualization={visualization}
-        data={data}
+        data={processedData}
       />
     </div>
   );

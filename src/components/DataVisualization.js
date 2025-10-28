@@ -29,14 +29,10 @@ const DataVisualization = ({ visualization, data }) => {
 
   // Handle missing column configuration
   if (!x_column || !y_column) {
-    return (
-      <div className="chart-container">
-        <h4 className="chart-title">{title}</h4>
-        <div className="chart-error">
-          Missing chart configuration (x_column or y_column)
-        </div>
-      </div>
-    );
+    // Silently skip - backend validation should prevent this
+    // If it happens, just don't show a chart (no error to user)
+    debugLog('Chart validation failed: missing x_column or y_column', { x_column, y_column });
+    return null;
   }
 
   // Validate that chart type is appropriate for the data
@@ -163,16 +159,13 @@ const DataVisualization = ({ visualization, data }) => {
       x_column = mappedX;
       y_column = mappedY;
     } else {
-      // If we still can't find suitable columns, show error
-      return (
-        <div className="chart-container">
-          <h4 className="chart-title">{title}</h4>
-          <div className="chart-error">
-            Chart columns not found in data: {x_column}, {y_column}<br/>
-            Available columns: {availableColumns.join(', ')}
-          </div>
-        </div>
-      );
+      // If we still can't find suitable columns, silently skip
+      // Backend should validate columns, but this is a failsafe
+      debugLog('Chart validation failed: columns not found', {
+        requested: { x_column, y_column },
+        available: availableColumns
+      });
+      return null;
     }
   }
 
@@ -243,11 +236,16 @@ const DataVisualization = ({ visualization, data }) => {
         );
 
       case 'pie':
+        const totalValue = processedData.reduce((sum, row) => {
+          const value = Number(row[y_column]);
+          return Number.isFinite(value) ? sum + value : sum;
+        }, 0);
+
         // Custom label function to show percentages
         const renderLabel = (entry) => {
-          // Use pre-calculated percentage from backend if available
-          const percentage = entry.percentage || 0;
-          return `${entry[x_column]}: ${percentage}%`;
+          const value = Number(entry[y_column]);
+          const pct = totalValue > 0 ? ((value / totalValue) * 100).toFixed(1) : '0.0';
+          return `${entry[x_column]}: ${pct}%`;
         };
 
         // Custom tooltip to show both value and percentage
@@ -255,14 +253,13 @@ const DataVisualization = ({ visualization, data }) => {
           if (props.active && props.payload && props.payload.length) {
             const data = props.payload[0];
             const pieData = data.payload;
-
-            // Use pre-calculated percentage from backend if available
-            const percentage = pieData.percentage || 0;
+            const value = Number(data.value);
+            const pct = totalValue > 0 ? ((value / totalValue) * 100).toFixed(1) : '0.0';
 
             return (
               <div className="custom-tooltip">
                 <p className="tooltip-label">{`${data.name}: ${data.value}`}</p>
-                <p className="tooltip-percentage">{`Percentage: ${percentage}%`}</p>
+                <p className="tooltip-percentage">{`Percentage: ${pct}%`}</p>
               </div>
             );
           }
@@ -323,19 +320,22 @@ const DataVisualization = ({ visualization, data }) => {
         );
 
       default:
-        return (
-          <div className="chart-error">
-            Unsupported chart type: {type}
-          </div>
-        );
+        // Unsupported chart type - silently skip
+        debugLog('Unsupported chart type:', type);
+        return null;
     }
   };
+
+  const chartContent = renderChart();
+  if (!chartContent) {
+    return null;
+  }
 
   return (
     <div className="chart-container">
       <h4 className="chart-title">{title}</h4>
       <ResponsiveContainer width="100%" height={400}>
-        {renderChart()}
+        {chartContent}
       </ResponsiveContainer>
       {config.reason && (
         <p className="chart-reason">💡 {config.reason}</p>
