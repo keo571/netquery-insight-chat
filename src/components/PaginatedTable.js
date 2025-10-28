@@ -1,91 +1,106 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import PropTypes from 'prop-types';
 import './PaginatedTable.css';
 
 const BACKEND_API_URL = process.env.REACT_APP_NETQUERY_API_URL || 'http://localhost:8000';
 
-const PaginatedTable = ({ data, pageSize = 10, maxDisplay = 30, displayInfo, queryId }) => {
-  const [displayedRows, setDisplayedRows] = useState(pageSize);
-  const [isDownloading, setIsDownloading] = useState(false);
+// Helper function to trigger browser download
+const triggerBrowserDownload = (url, filename = '') => {
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+};
 
+// Helper function to convert data to CSV format
+const convertToCSV = (data) => {
+  if (!data?.length) return '';
+
+  const headers = Object.keys(data[0]);
+  const rows = data.map(row =>
+    headers.map(header => JSON.stringify(row[header] ?? '')).join(',')
+  );
+
+  return [headers.join(','), ...rows].join('\n');
+};
+
+const PaginatedTable = ({ data, pageSize = 10, maxDisplay = 50, displayInfo, queryId }) => {
+  const [displayedRows, setDisplayedRows] = useState(pageSize);
+
+  // Load more rows handler
   const handleLoadMore = useCallback(() => {
     setDisplayedRows(prev => Math.min(prev + pageSize, maxDisplay));
   }, [pageSize, maxDisplay]);
 
-  // Server-side download for full dataset
-  const downloadFullDataset = useCallback(async () => {
+  // Download full dataset from server
+  const downloadFullDataset = useCallback(() => {
     if (!queryId) return;
 
-    setIsDownloading(true);
-    try {
-      console.log(`Requesting download for query_id: ${queryId}`);
-      const response = await fetch(`${BACKEND_API_URL}/api/download/${queryId}`, {
-        method: 'GET',
-        headers: {
-          'Accept': 'text/csv'
-        }
-      });
-
-      console.log(`Download response status: ${response.status}`);
-
-      if (response.ok) {
-        const blob = await response.blob();
-        console.log(`Download blob size: ${blob.size} bytes`);
-
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.style.display = 'none';
-        a.href = url;
-        a.download = `query_results_${queryId.slice(0, 8)}_${new Date().toISOString().slice(0, 10)}.csv`;
-        document.body.appendChild(a);
-        a.click();
-        window.URL.revokeObjectURL(url);
-        document.body.removeChild(a);
-        console.log('Download completed successfully');
-      } else {
-        const errorText = await response.text();
-        const errorMsg = `Download failed: ${response.status} ${response.statusText}`;
-        console.error(errorMsg, errorText);
-        alert(`Download failed: ${response.status} - ${errorText || response.statusText}`);
-      }
-    } catch (error) {
-      console.error('Download error:', error);
-      alert(`Download error: ${error.message}. Please check browser console for details.`);
-    } finally {
-      setIsDownloading(false);
-    }
+    console.log(`Initiating download for query_id: ${queryId}`);
+    const downloadUrl = `${BACKEND_API_URL}/api/download/${queryId}`;
+    triggerBrowserDownload(downloadUrl);
+    console.log('Download initiated - browser will show progress');
   }, [queryId]);
 
-  // Local CSV download for cached data only
+  // Download cached data as CSV
   const downloadCachedCSV = useCallback(() => {
-    if (!data || !Array.isArray(data) || data.length === 0) return;
+    if (!data?.length) return;
 
-    const headers = Object.keys(data[0]);
-    const csvContent = [
-      headers.join(','),
-      ...data.map(row =>
-        headers.map(h => JSON.stringify(row[h] ?? '')).join(',')
-      )
-    ].join('\n');
-
+    const csvContent = convertToCSV(data);
     const blob = new Blob([csvContent], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `cached_results_${Date.now()}.csv`;
-    link.click();
+
+    triggerBrowserDownload(url, `cached_results_${Date.now()}.csv`);
     URL.revokeObjectURL(url);
   }, [data]);
 
-  if (!data || !Array.isArray(data) || data.length === 0) {
+  // Early return if no data
+  if (!data?.length) {
     return <div className="json-table-empty">No data available</div>;
   }
 
-  const headers = Object.keys(data[0]);
-  const totalRows = data.length;
-  const visibleData = data.slice(0, displayedRows);
-  const hasMore = displayedRows < Math.min(totalRows, maxDisplay);
-  const hasFullDataset = displayInfo?.total_in_dataset && displayInfo.total_in_dataset !== totalRows;
+  // Compute derived values using useMemo for performance
+  const { headers, totalRows, visibleData, hasMore, hasFullDataset } = useMemo(() => {
+    const headers = Object.keys(data[0]);
+    const totalRows = data.length;
+    const visibleData = data.slice(0, displayedRows);
+    const hasMore = displayedRows < Math.min(totalRows, maxDisplay);
+    const hasFullDataset = displayInfo?.total_in_dataset && displayInfo.total_in_dataset !== totalRows;
+
+    return { headers, totalRows, visibleData, hasMore, hasFullDataset };
+  }, [data, displayedRows, maxDisplay, displayInfo]);
+
+  // Render download button based on dataset availability
+  const renderDownloadButton = () => {
+    if (hasFullDataset && queryId) {
+      return (
+        <button
+          className="download-csv-btn"
+          onClick={downloadFullDataset}
+          title="Download complete dataset from server (browser will show progress)"
+        >
+          📥 Download Full Dataset ({displayInfo.total_in_dataset} rows)
+        </button>
+      );
+    }
+
+    return (
+      <button
+        className="download-csv-btn"
+        onClick={downloadCachedCSV}
+        title="Download cached data as CSV"
+      >
+        📥 Download CSV ({totalRows} rows)
+      </button>
+    );
+  };
+
+  // Render table cell value
+  const renderCellValue = (value) => {
+    return value !== null && value !== undefined ? String(value) : '';
+  };
 
   return (
     <div className="paginated-table-container">
@@ -98,32 +113,7 @@ const PaginatedTable = ({ data, pageSize = 10, maxDisplay = 30, displayInfo, que
             <span> (total in dataset: {displayInfo.total_in_dataset})</span>
           )}
         </span>
-
-        {/* Download buttons */}
-        <div className="download-buttons">
-          {hasFullDataset && queryId ? (
-            <button
-              className="download-csv-btn"
-              onClick={downloadFullDataset}
-              disabled={isDownloading}
-              title="Download complete dataset from server"
-            >
-              {isDownloading ? (
-                <>⏳ Downloading...</>
-              ) : (
-                <>📥 Download Full Dataset ({displayInfo.total_in_dataset} rows)</>
-              )}
-            </button>
-          ) : (
-            <button
-              className="download-csv-btn"
-              onClick={downloadCachedCSV}
-              title="Download cached data as CSV"
-            >
-              📥 Download CSV ({totalRows} rows)
-            </button>
-          )}
-        </div>
+        <div className="download-buttons">{renderDownloadButton()}</div>
       </div>
 
       <div className="json-table-wrapper">
@@ -139,11 +129,7 @@ const PaginatedTable = ({ data, pageSize = 10, maxDisplay = 30, displayInfo, que
             {visibleData.map((row, rowIndex) => (
               <tr key={rowIndex} className="fade-in">
                 {headers.map((header, cellIndex) => (
-                  <td key={cellIndex}>
-                    {row[header] !== null && row[header] !== undefined
-                      ? String(row[header])
-                      : ''}
-                  </td>
+                  <td key={cellIndex}>{renderCellValue(row[header])}</td>
                 ))}
               </tr>
             ))}
@@ -152,10 +138,7 @@ const PaginatedTable = ({ data, pageSize = 10, maxDisplay = 30, displayInfo, que
       </div>
 
       {hasMore && (
-        <button
-          className="load-more-btn"
-          onClick={handleLoadMore}
-        >
+        <button className="load-more-btn" onClick={handleLoadMore}>
           Load {Math.min(pageSize, maxDisplay - displayedRows)} more rows
         </button>
       )}

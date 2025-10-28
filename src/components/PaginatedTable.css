@@ -1,3 +1,4 @@
+/* Container */
 .paginated-table-container {
   margin: 1rem 0;
 }
@@ -8,6 +9,7 @@
   color: #333;
 }
 
+/* Table Header */
 .table-header {
   display: flex;
   justify-content: space-between;
@@ -23,15 +25,20 @@
   color: #666;
 }
 
-.download-csv-btn {
-  padding: 0.4rem 0.8rem;
-  background: #4CAF50;
-  color: white;
+/* Buttons */
+.download-csv-btn,
+.load-more-btn {
   border: none;
   border-radius: 4px;
   cursor: pointer;
-  font-size: 0.9rem;
   transition: background 0.2s;
+  color: white;
+}
+
+.download-csv-btn {
+  padding: 0.4rem 0.8rem;
+  background: #4CAF50;
+  font-size: 0.9rem;
 }
 
 .download-csv-btn:hover {
@@ -43,19 +50,14 @@
   padding: 0.75rem;
   margin-top: 1rem;
   background: #2196F3;
-  color: white;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
   font-size: 1rem;
-  transition: background 0.2s;
 }
 
 .load-more-btn:hover {
   background: #1976D2;
 }
 
-/* Table wrapper for scrolling */
+/* Table Wrapper */
 .json-table-wrapper {
   overflow: auto;
   max-height: 400px;
@@ -65,7 +67,7 @@
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 }
 
-/* Table styling */
+/* Table */
 .json-table {
   width: 100%;
   border-collapse: collapse;
@@ -73,14 +75,19 @@
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
 }
 
+/* Table Header & Cells - Shared Styles */
+.json-table th,
+.json-table td {
+  padding: 12px 16px;
+  text-align: left;
+  white-space: nowrap;
+}
+
 .json-table th {
   background-color: #f8f9fa;
   color: #495057;
   font-weight: 600;
-  padding: 12px 16px;
-  text-align: left;
   border-bottom: 2px solid #dee2e6;
-  white-space: nowrap;
   position: sticky;
   top: 0;
   z-index: 10;
@@ -90,10 +97,10 @@
   padding: 10px 16px;
   border-bottom: 1px solid #e9ecef;
   vertical-align: top;
-  white-space: nowrap;
   min-width: 100px;
 }
 
+/* Table Row States */
 .json-table tbody tr:hover {
   background-color: #f8f9fa;
 }
@@ -102,6 +109,7 @@
   border-bottom: none;
 }
 
+/* Empty State */
 .json-table-empty {
   padding: 20px;
   text-align: center;

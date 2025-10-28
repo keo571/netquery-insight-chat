@@ -151,9 +151,9 @@ SQL queries can return thousands of rows, but users typically need to see a prev
 
 **Decision:**
 Implement multi-tier data loading ([PaginatedTable.js](src/components/PaginatedTable.js)):
-1. **Backend limit:** 100 rows max from Netquery API
-2. **Initial display:** 10-20 rows rendered immediately
-3. **Progressive load:** "Load more" button reveals additional rows (up to 100)
+1. **Backend limit:** 50 rows max from Netquery API
+2. **Initial display:** 10 rows rendered immediately
+3. **Progressive load:** "Load more" button reveals additional rows (up to 50)
 4. **Full download:** Server-side CSV export for complete datasets
 
 **Rationale:**
@@ -170,8 +170,8 @@ Implement multi-tier data loading ([PaginatedTable.js](src/components/PaginatedT
 **Configuration:**
 ```javascript
 pageSize = 10              // Rows per "Load more" click
-maxDisplay = 30            // Max rows shown in browser (UX limit)
-BACKEND_LIMIT = 100        // Netquery API limit
+maxDisplay = 50            // Max rows shown in browser (UX limit)
+BACKEND_LIMIT = 50         // Netquery API limit
 ```
 
 ---
