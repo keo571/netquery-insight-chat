@@ -21,7 +21,7 @@ function App() {
   const [selectedImage, setSelectedImage] = useState(null);
 
   // Custom hooks
-  const { messages, loading, sendMessage } = useChat();
+  const { messages, loading, sendMessage, updateMessageAnalysis } = useChat();
   const [schemaOverview, setSchemaOverview] = useState(null);
   const [schemaLoading, setSchemaLoading] = useState(true);
   const [schemaError, setSchemaError] = useState(null);
@@ -89,6 +89,7 @@ function App() {
                 isUser={message.isUser}
                 agentName={AGENT_CONFIG.name}
                 onImageClick={setSelectedImage}
+                onUpdateAnalysis={updateMessageAnalysis}
               />
             ))
           )}

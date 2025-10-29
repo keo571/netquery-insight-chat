@@ -339,3 +339,25 @@
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
+
+/* Show Analysis button */
+.analysis-toggle-container {
+  margin: 1rem 0 0.5rem 0;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.toggle-analysis-btn {
+  padding: 0.4rem 0.8rem;
+  background: #4CAF50;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: background 0.2s;
+}
+
+.toggle-analysis-btn:hover {
+  background: #45a049;
+}

@@ -52,6 +52,7 @@ app.add_middleware(
 class ChatRequest(BaseModel):
     message: str
     session_id: Optional[str] = None
+    include_interpretation: bool = False
 
 class SchemaOverviewResponse(BaseModel):
     schema_id: Optional[str] = None
@@ -207,6 +208,25 @@ def extract_interpretation_fields(interpretation_data: dict) -> Tuple[Optional[d
     return visualization, schema_overview, suggested_queries, guidance
 
 
+def build_interpretation_payload(interpretation_data: dict, total_count: Optional[int]) -> dict:
+    """Build complete interpretation payload from backend response."""
+    analysis_explanation = build_analysis_explanation(interpretation_data, total_count)
+    visualization, schema_overview, suggested_queries, _ = extract_interpretation_fields(interpretation_data)
+
+    return {
+        'analysis': analysis_explanation,
+        'visualization': visualization,
+        'schema_overview': schema_overview,
+        'suggested_queries': suggested_queries
+    }
+
+
+def yield_sse_event(event_type: str, data: dict) -> str:
+    """Helper to format Server-Sent Events consistently."""
+    payload = {'type': event_type, **data}
+    return f"data: {json.dumps(payload)}\n\n"
+
+
 # Netquery Client
 class NetqueryFastAPIClient:
     """Client to communicate with Netquery FastAPI server."""
@@ -263,7 +283,7 @@ async def chat_endpoint(request: ChatRequest):
             logger.info(f"Processing streaming query (session: {session_id}): {request.message[:80]}...")
 
             # Send session ID immediately
-            yield f"data: {json.dumps({'type': 'session', 'session_id': session_id})}\n\n"
+            yield yield_sse_event('session', {'session_id': session_id})
 
             async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
                 # Build context-aware message if we have conversation history
@@ -278,20 +298,22 @@ async def chat_endpoint(request: ChatRequest):
                     if exc.response.status_code == 422:
                         # Handle schema guidance response
                         detail = exc.response.json().get("detail", {})
-                        guidance_payload = {
-                            "type": "guidance",
+                        yield yield_sse_event('guidance', {
                             "message": detail.get("message", "I couldn't map that request to known data."),
                             "schema_overview": detail.get("schema_overview"),
-                            "suggested_queries": detail.get("suggested_queries", []),
-                        }
-                        yield f"data: {json.dumps(guidance_payload)}\n\n"
-                        yield "data: {\"type\": \"done\"}\n\n"
+                            "suggested_queries": detail.get("suggested_queries", [])
+                        })
+                        yield yield_sse_event('done', {})
                         return
                     raise
 
                 # Send SQL immediately
                 sql_explanation = f"**SQL Query:**\n```sql\n{sql}\n```\n\n"
-                yield f"data: {json.dumps({'type': 'sql', 'sql': sql, 'query_id': query_id, 'explanation': sql_explanation})}\n\n"
+                yield yield_sse_event('sql', {
+                    'sql': sql,
+                    'query_id': query_id,
+                    'explanation': sql_explanation
+                })
 
                 # Step 2: Execute and get data
                 execute_data = await netquery_client.execute_query(client, query_id)
@@ -300,49 +322,38 @@ async def chat_endpoint(request: ChatRequest):
 
                 # Build and send display info
                 display_info = build_display_info(data, total_count)
-                yield f"data: {json.dumps({'type': 'data', 'results': data, 'display_info': display_info})}\n\n"
+                yield yield_sse_event('data', {
+                    'results': data,
+                    'display_info': display_info
+                })
 
-                # Step 3: Get interpretation
-                interpretation_data = await netquery_client.interpret_results(client, query_id)
+                # Step 3: Get interpretation (only if requested)
+                if request.include_interpretation:
+                    interpretation_data = await netquery_client.interpret_results(client, query_id)
+                    interpretation_payload = build_interpretation_payload(interpretation_data, total_count)
 
-                # Build analysis explanation
-                analysis_explanation = build_analysis_explanation(interpretation_data, total_count)
-
-                # Extract visualization and other fields
-                visualization, schema_overview, suggested_queries, _ = extract_interpretation_fields(interpretation_data)
-
-                # Send interpretation payload
-                interpretation_payload = {
-                    'type': 'interpretation',
-                    'analysis': analysis_explanation,
-                    'visualization': visualization,
-                    'schema_overview': schema_overview,
-                    'suggested_queries': suggested_queries
-                }
-
-                try:
-                    yield f"data: {json.dumps(interpretation_payload)}\n\n"
-                except (TypeError, ValueError) as json_error:
-                    logger.error(f"JSON serialization error: {json_error}")
-                    # Send safe fallback payload
-                    safe_payload = {
-                        'type': 'interpretation',
-                        'analysis': analysis_explanation,
-                        'visualization': None,
-                        'schema_overview': None,
-                        'suggested_queries': []
-                    }
-                    yield f"data: {json.dumps(safe_payload)}\n\n"
+                    try:
+                        yield yield_sse_event('interpretation', interpretation_payload)
+                    except (TypeError, ValueError) as json_error:
+                        logger.error(f"JSON serialization error: {json_error}")
+                        # Send safe fallback payload
+                        safe_payload = {
+                            'analysis': interpretation_payload.get('analysis', ''),
+                            'visualization': None,
+                            'schema_overview': None,
+                            'suggested_queries': []
+                        }
+                        yield yield_sse_event('interpretation', safe_payload)
 
                 # Add to conversation history
                 add_to_conversation(session_id, request.message, sql)
 
                 # Send completion signal
-                yield "data: {\"type\": \"done\"}\n\n"
+                yield yield_sse_event('done', {})
 
         except Exception as e:
             logger.error(f"Streaming chat error: {e}")
-            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+            yield yield_sse_event('error', {'message': str(e)})
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
@@ -378,6 +389,31 @@ async def schema_overview_endpoint():
         return SchemaOverviewResponse(**overview)
     except Exception as exc:
         raise HTTPException(status_code=503, detail=str(exc))
+
+
+@app.get("/api/interpret/{query_id}")
+async def get_interpretation_endpoint(query_id: str):
+    """Get interpretation and visualization for a given query_id on demand."""
+    try:
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
+            logger.info(f"Fetching interpretation for query_id: {query_id}")
+
+            # Get the cached data to determine total_count
+            execute_data = await netquery_client.execute_query(client, query_id)
+            total_count = execute_data.get("total_count")
+
+            # Get interpretation from backend
+            interpretation_data = await netquery_client.interpret_results(client, query_id)
+
+            # Build and return interpretation payload
+            return build_interpretation_payload(interpretation_data, total_count)
+
+    except httpx.HTTPStatusError as e:
+        logger.error(f"Interpretation failed for query_id {query_id}: {e}")
+        raise HTTPException(status_code=e.response.status_code, detail=f"Interpretation failed: {str(e)}")
+    except Exception as e:
+        logger.error(f"Interpretation error for query_id {query_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Interpretation error: {str(e)}")
 
 
 @app.get("/api/download/{query_id}")

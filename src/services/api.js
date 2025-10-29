@@ -74,3 +74,16 @@ export const fetchSchemaOverview = async () => {
         throw error;
     }
 };
+
+export const fetchInterpretation = async (queryId) => {
+    try {
+        const response = await fetch(`${API_URL}/api/interpret/${queryId}`);
+        if (!response.ok) {
+            throw new Error('Failed to load interpretation');
+        }
+        return await response.json();
+    } catch (error) {
+        console.error('Interpretation error:', error);
+        throw error;
+    }
+};

@@ -202,9 +202,24 @@ export const useChat = () => {
     }
   }, [loading]);
 
+  const updateMessageAnalysis = useCallback((messageId, analysisData) => {
+    setMessages(prev => prev.map(msg =>
+      msg.id === messageId
+        ? {
+            ...msg,
+            analysis_explanation: analysisData.analysis,
+            visualization: analysisData.visualization,
+            schemaOverview: analysisData.schema_overview,
+            suggestedQueries: analysisData.suggested_queries
+          }
+        : msg
+    ));
+  }, []);
+
   return {
     messages,
     loading,
-    sendMessage
+    sendMessage,
+    updateMessageAnalysis
   };
 };
