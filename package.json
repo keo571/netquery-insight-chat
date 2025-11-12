@@ -26,8 +26,7 @@
     "react-dom": "^19.1.0",
     "react-markdown": "^10.1.0",
     "react-scripts": "5.0.1",
-    "recharts": "^3.2.1",
-    "web-vitals": "^2.1.4"
+    "recharts": "^3.2.1"
   },
   "scripts": {
     "start": "react-scripts start",
@@ -37,7 +36,7 @@
     "dev": "npm start",
     "serve": "npx serve -s build -l 3000",
     "build:prod": "npm run build && npm run serve",
-    "backend": "python netquery_server.py",
+    "backend": "python chat_adapter.py",
     "clean": "rimraf build node_modules && npm install"
   },
   "eslintConfig": {
@@ -66,10 +65,5 @@
     "concurrently": "^9.2.1",
     "gh-pages": "^6.3.0",
     "rimraf": "^5.0.0"
-  },
-  "jest": {
-    "moduleNameMapper": {
-      "^react-markdown$": "<rootDir>/src/__mocks__/react-markdown.js"
-    }
   }
 }

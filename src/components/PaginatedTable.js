@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useMemo } from 'react';
 import PropTypes from 'prop-types';
+import { debugLog } from '../utils/debug';
 import './PaginatedTable.css';
 
 const BACKEND_API_URL = process.env.REACT_APP_NETQUERY_API_URL || 'http://localhost:8000';
@@ -26,7 +27,7 @@ const convertToCSV = (data) => {
   return [headers.join(','), ...rows].join('\n');
 };
 
-const PaginatedTable = ({ data, pageSize = 10, maxDisplay = 50, displayInfo, queryId }) => {
+const PaginatedTable = ({ data, pageSize = 20, maxDisplay = 40, displayInfo, queryId }) => {
   const [displayedRows, setDisplayedRows] = useState(pageSize);
 
   // Load more rows handler
@@ -38,10 +39,10 @@ const PaginatedTable = ({ data, pageSize = 10, maxDisplay = 50, displayInfo, que
   const downloadFullDataset = useCallback(() => {
     if (!queryId) return;
 
-    console.log(`Initiating download for query_id: ${queryId}`);
+    debugLog(`Initiating download for query_id: ${queryId}`);
     const downloadUrl = `${BACKEND_API_URL}/api/download/${queryId}`;
     triggerBrowserDownload(downloadUrl);
-    console.log('Download initiated - browser will show progress');
+    debugLog('Download initiated - browser will show progress');
   }, [queryId]);
 
   // Download cached data as CSV
@@ -56,13 +57,12 @@ const PaginatedTable = ({ data, pageSize = 10, maxDisplay = 50, displayInfo, que
     URL.revokeObjectURL(url);
   }, [data]);
 
-  // Early return if no data
-  if (!data?.length) {
-    return <div className="json-table-empty">No data available</div>;
-  }
-
-  // Compute derived values using useMemo for performance
+  // Compute derived values using useMemo for performance (before early return)
   const { headers, totalRows, visibleData, hasMore, hasFullDataset } = useMemo(() => {
+    if (!data?.length) {
+      return { headers: [], totalRows: 0, visibleData: [], hasMore: false, hasFullDataset: false };
+    }
+
     const headers = Object.keys(data[0]);
     const totalRows = data.length;
     const visibleData = data.slice(0, displayedRows);
@@ -71,6 +71,11 @@ const PaginatedTable = ({ data, pageSize = 10, maxDisplay = 50, displayInfo, que
 
     return { headers, totalRows, visibleData, hasMore, hasFullDataset };
   }, [data, displayedRows, maxDisplay, displayInfo]);
+
+  // Early return if no data
+  if (!data?.length) {
+    return <div className="json-table-empty">No data available</div>;
+  }
 
   // Render download button based on dataset availability
   const renderDownloadButton = () => {
