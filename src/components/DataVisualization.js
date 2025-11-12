@@ -252,7 +252,6 @@ const DataVisualization = ({ visualization, data }) => {
         const renderTooltip = (props) => {
           if (props.active && props.payload && props.payload.length) {
             const data = props.payload[0];
-            const pieData = data.payload;
             const value = Number(data.value);
             const pct = totalValue > 0 ? ((value / totalValue) * 100).toFixed(1) : '0.0';
 
@@ -267,7 +266,7 @@ const DataVisualization = ({ visualization, data }) => {
         };
 
         return (
-          <PieChart>
+          <PieChart width={800} height={400}>
             <Pie
               data={processedData}
               dataKey={y_column}

@@ -72,7 +72,7 @@ If you would rather run each process yourself:
     python3 -m venv .venv
     source .venv/bin/activate
     pip install -r requirements.txt
-    python netquery_server.py
+    python chat_adapter.py
     ```
 3. **React frontend**
     ```bash
@@ -109,7 +109,7 @@ ADAPTER_PORT=8001
 │   ├── services/api.js    # Adapter + schema overview calls
 │   ├── utils/debug.js     # Dev-time logging helper
 │   └── __mocks__/         # react-markdown Jest mock
-├── netquery_server.py     # FastAPI adapter with sessions + guidance
+├── chat_adapter.py        # FastAPI adapter (BFF layer) with sessions + streaming
 ├── dev-start.sh / stop.sh / status.sh
 ├── README.md              # This consolidated guide
 ├── .env.example, LICENSE, package.json, requirements.txt

@@ -78,3 +78,6 @@ __pycache__/
 # Deployment configs
 .netlify
 .vercel
+
+# User feedback data
+feedback.jsonl

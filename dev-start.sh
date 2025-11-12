@@ -67,7 +67,7 @@ if lsof -Pi :$ADAPTER_PORT -sTCP:LISTEN -t >/dev/null 2>&1 ; then
     sleep 2
 fi
 
-NETQUERY_API_URL="$NETQUERY_API_URL" ADAPTER_PORT=$ADAPTER_PORT python netquery_server.py > /tmp/netquery-adapter.log 2>&1 &
+NETQUERY_API_URL="$NETQUERY_API_URL" ADAPTER_PORT=$ADAPTER_PORT python chat_adapter.py > /tmp/netquery-adapter.log 2>&1 &
 ADAPTER_PID=$!
 echo -e "${GREEN}✓ Backend Adapter started (PID: $ADAPTER_PID, Port: $ADAPTER_PORT)${NC}"
 echo -e "${YELLOW}  Log: tail -f /tmp/netquery-adapter.log${NC}"

@@ -100,7 +100,7 @@ Each session stores:
 Follow-up questions like "show their names" or "remove the id" require understanding previous queries. Netquery's LLM needs conversation history to generate correct SQL.
 
 **Decision:**
-Build context prompts in the adapter ([netquery_server.py:100-138](netquery_server.py#L100-L138)) that include:
+Build context prompts in the adapter ([chat_adapter.py:100-138](chat_adapter.py#L100-L138)) that include:
 - Last 3 conversation exchanges (user message + SQL query)
 - Domain-agnostic context rules for common conversational patterns
 - Clear separation of conversation history and new question
@@ -151,13 +151,13 @@ SQL queries can return thousands of rows, but users typically need to see a prev
 
 **Decision:**
 Implement multi-tier data loading ([PaginatedTable.js](src/components/PaginatedTable.js)):
-1. **Backend limit:** 50 rows max from Netquery API
-2. **Initial display:** 10 rows rendered immediately
-3. **Progressive load:** "Load more" button reveals additional rows (up to 50)
+1. **Backend limit:** 40 rows max from Netquery API
+2. **Initial display:** 20 rows rendered immediately
+3. **Progressive load:** "Load more" button reveals additional rows (up to 40)
 4. **Full download:** Server-side CSV export for complete datasets
 
 **Rationale:**
-- **Performance:** Fast initial render (~10 rows) gives instant feedback
+- **Performance:** Fast initial render (~20 rows) gives instant feedback
 - **Bandwidth:** Transfer only what's needed for preview
 - **Flexibility:** Users can explore data incrementally or download everything
 - **User Experience:** Avoids "loading forever" for large datasets
@@ -169,9 +169,9 @@ Implement multi-tier data loading ([PaginatedTable.js](src/components/PaginatedT
 
 **Configuration:**
 ```javascript
-pageSize = 10              // Rows per "Load more" click
-maxDisplay = 50            // Max rows shown in browser (UX limit)
-BACKEND_LIMIT = 50         // Netquery API limit
+pageSize = 20              // Rows per "Load more" click (default, can be overridden by backend)
+maxDisplay = data.length   // Max rows shown = all cached rows (40 from backend)
+BACKEND_LIMIT = 40         // Netquery API limit
 ```
 
 ---
@@ -456,7 +456,7 @@ sql_query = sql_match.group(1) if sql_match else "N/A"
 ```
 
 **Decision:**
-Add raw `sql` field to `_format_response()` return value ([netquery_server.py:287-298](netquery_server.py#L287-L298)):
+Add raw `sql` field to `_format_response()` return value ([chat_adapter.py:287-298](chat_adapter.py#L287-L298)):
 ```python
 return {
     "sql": sql,          # Raw SQL query (no markdown)
@@ -504,7 +504,7 @@ User Query → [Wait 5-8s...] → All parts appear at once
 **Decision:**
 Implement Server-Sent Events (SSE) streaming as the **only** response mode:
 
-1. **Backend** ([netquery_server.py:314-448](netquery_server.py#L314-L448)):
+1. **Backend** ([chat_adapter.py:314-448](chat_adapter.py#L314-L448)):
    - Single `/chat` endpoint returns SSE stream (removed non-streaming endpoint)
    - Progressive events: `session` → `sql` → `data` → `analysis` → `visualization` → `done`
    - Each part sent as soon as it's ready
@@ -676,7 +676,7 @@ onEvent(event => {
 - All responses now stream by default (no opt-in flag)
 
 **Files Changed:**
-- Backend: [netquery_server.py:314-448](netquery_server.py#L314-L448)
+- Backend: [chat_adapter.py:314-448](chat_adapter.py#L314-L448)
 - API Client: [src/services/api.js](src/services/api.js)
 - State Hook: [src/hooks/useChat.js](src/hooks/useChat.js)
 - UI Component: [src/components/StreamingMessage.js:112-154](src/components/StreamingMessage.js#L112-L154)
@@ -714,7 +714,7 @@ SELECT ...
 **Decision:**
 Standardize all section headers to have their own lines with consistent formatting:
 
-1. **Backend formatting** ([netquery_server.py:238-250, 401-413](netquery_server.py#L238-L250)):
+1. **Backend formatting** ([chat_adapter.py:238-250, 401-413](chat_adapter.py#L238-L250)):
    - Add blank line after "Summary:" before content
    - Add blank line after "Key Findings:" before numbered list
    - Add blank line after "Analysis Note:" before content
@@ -799,7 +799,7 @@ if findings:
 - Chose markdown formatting over React components: Simpler, works with existing markdown renderer
 
 **Files Changed:**
-- Backend: [netquery_server.py:238-250, 401-413](netquery_server.py#L238-L250)
+- Backend: [chat_adapter.py:238-250, 401-413](chat_adapter.py#L238-L250)
 - Component: [PaginatedTable.js:92](src/components/PaginatedTable.js#L92)
 - Styles: [PaginatedTable.css:5-9](src/components/PaginatedTable.css#L5-L9)
 
@@ -807,6 +807,474 @@ if findings:
 - Removed unused `downloadError` state variable in PaginatedTable
 - Added error handling for JSON serialization in streaming endpoint
 - Improved type validation for visualization and schema data
+
+---
+
+## ADR-014: User Feedback Collection System
+
+**Status:** Accepted (2025-01-11)
+
+**Context:**
+To improve the quality of SQL generation and interpretations, we need to collect feedback from users about which responses were helpful and which weren't. This feedback will be used to:
+- Identify problematic queries that generate poor SQL
+- Improve prompts and embeddings in the backend
+- Build training datasets for fine-tuning
+- Track quality metrics over time
+
+The feedback system needs to be:
+- Non-intrusive (doesn't interrupt workflow)
+- Optional (users can skip providing details)
+- Contextual (captures the query and SQL that produced the response)
+
+**Decision:**
+Implement a thumbs up/down feedback system with an optional modal dialog for additional details on negative feedback.
+
+**Architecture:**
+
+```
+┌─────────────────────────────────────┐
+│  StreamingMessage Component         │
+│  └─ MessageFeedback Component       │
+│     ├─ Thumbs Up Button (👍)       │
+│     └─ Thumbs Down Button (👎)     │
+│        └─ FeedbackModal (on click)  │
+└─────────────────────────────────────┘
+         ↓
+    POST /api/feedback
+         ↓
+┌─────────────────────────────────────┐
+│  chat_adapter.py                    │
+│  └─ submit_feedback_endpoint()      │
+│     └─ Appends to feedback.jsonl    │
+└─────────────────────────────────────┘
+```
+
+**Implementation Details:**
+
+**1. Frontend Components:**
+
+- **MessageFeedback.js** ([src/components/MessageFeedback.js](src/components/MessageFeedback.js))
+  - Thumbs up/down buttons
+  - Disabled after feedback given (prevents duplicate submissions)
+  - Shows "Thanks for your feedback!" message
+  - Only displays for messages with query_id (not welcome messages)
+
+- **FeedbackModal.js** ([src/components/FeedbackModal.js](src/components/FeedbackModal.js))
+  - Modal dialog with overlay
+  - Optional textarea: "What went wrong?"
+  - Submit/Cancel buttons
+  - Can close with Escape key or clicking overlay
+  - Accessible (aria-modal, role="dialog")
+
+**2. User Flow:**
+
+**Thumbs Up:**
+1. User clicks 👍
+2. Silent submission to backend
+3. Button shows as active, both buttons disabled
+4. "Thanks for your feedback!" message appears
+
+**Thumbs Down:**
+1. User clicks 👎
+2. Modal opens with optional text field
+3. User can describe issue or submit empty (optional)
+4. On submit: saves feedback, closes modal, shows thanks message
+5. On cancel: closes modal, no feedback saved
+
+**3. Data Collection:**
+
+**Feedback Data Structure:**
+```json
+{
+  "type": "thumbs_up" | "thumbs_down",
+  "query_id": "uuid",
+  "user_question": "Show me all VIPs",
+  "sql_query": "SELECT * FROM vips",
+  "description": "Optional user complaint",
+  "timestamp": "2025-01-11T10:30:00Z"
+}
+```
+
+**Storage Format:** JSON Lines (`.jsonl`)
+- One JSON object per line
+- Easy to parse and analyze
+- File location: `feedback.jsonl` in project root
+- Append-only (no database required for MVP)
+
+**4. Backend Endpoint:**
+
+**POST /api/feedback** ([chat_adapter.py:579-593](chat_adapter.py#L579-L593))
+- Receives feedback data
+- Appends to `feedback.jsonl`
+- Returns success/failure status
+- **BFF-only feature** (not in core Netquery backend)
+
+**5. Frontend State Management:**
+
+**useChat.js Updates** ([src/hooks/useChat.js:63-77](src/hooks/useChat.js#L63-L77))
+- Added `user_question` field to messages
+- Added `sql_query` field (raw SQL, not markdown)
+- Stored when SQL event received
+
+**API Client** ([src/services/api.js:91-108](src/services/api.js#L91-L108))
+- `submitFeedback()` function
+- POST to `/api/feedback`
+- Error handling with user alerts
+
+**Rationale:**
+
+**1. Why Thumbs Up/Down?**
+- ✅ Universal, well-understood UI pattern
+- ✅ Low friction (one click for positive feedback)
+- ✅ Quick to implement
+- ✅ Easy to analyze (binary signal)
+
+**2. Why Modal for Negative Feedback?**
+- ✅ Focuses user attention
+- ✅ Clean UI (doesn't push content around)
+- ✅ Optional description (user decides detail level)
+- ✅ Professional appearance
+- ✅ Easy to dismiss (multiple ways to close)
+
+**3. Why JSON Lines (.jsonl)?**
+- ✅ Simple to implement (no database setup)
+- ✅ Easy to parse (one record per line)
+- ✅ Append-only (no locking issues)
+- ✅ Human-readable (easy debugging)
+- ✅ Easy to analyze with scripts/jq/Python
+- ✅ Can migrate to database later if needed
+
+**4. Why Store in Adapter (BFF) vs Backend?**
+- ✅ Chat UI-specific feature
+- ✅ Doesn't affect core Netquery logic
+- ✅ Quick to implement without backend changes
+- ✅ Feedback data stays with chat project
+- ✅ Can sync to backend later if needed
+
+**Consequences:**
+
+**Positive:**
+- ✅ **Data collection** - Start gathering quality signals immediately
+- ✅ **Non-intrusive** - Doesn't interrupt user workflow
+- ✅ **Contextual** - Captures full query context for analysis
+- ✅ **Simple** - No database setup required
+- ✅ **Flexible** - Easy to analyze with any tool
+- ✅ **Scalable** - Can migrate to database when needed
+
+**Negative:**
+- ❌ **No dashboard** - Manual analysis required (acceptable for MVP)
+- ❌ **No deduplication** - Users could spam (low risk, can fix later)
+- ❌ **File-based** - Doesn't scale to millions of records (acceptable for now)
+
+**Trade-offs:**
+- Chose simplicity over sophistication: File storage good enough for MVP
+- Chose optional over required: Don't force users to explain every downvote
+- Chose chat-specific over cross-app: Feedback stored locally, not in core backend
+
+**Analysis Opportunities:**
+
+With this data, you can:
+
+1. **Identify Problem Patterns:**
+   ```bash
+   # Find most downvoted query types
+   cat feedback.jsonl | jq -r 'select(.type=="thumbs_down") | .user_question' | sort | uniq -c | sort -rn
+   ```
+
+2. **Categorize Issues:**
+   ```bash
+   # Extract descriptions
+   cat feedback.jsonl | jq -r 'select(.description != null) | .description'
+   ```
+
+3. **Quality Metrics:**
+   ```bash
+   # Calculate thumbs up ratio
+   thumbs_up=$(cat feedback.jsonl | jq -r 'select(.type=="thumbs_up")' | wc -l)
+   thumbs_down=$(cat feedback.jsonl | jq -r 'select(.type=="thumbs_down")' | wc -l)
+   echo "Thumbs up: $thumbs_up, Thumbs down: $thumbs_down"
+   ```
+
+4. **Prompt Engineering:**
+   - Review SQL for downvoted queries
+   - Improve prompts for problematic patterns
+   - Add few-shot examples for common failures
+
+5. **Embedding Improvements:**
+   - Identify queries with poor schema matching
+   - Update embeddings for misunderstood tables
+   - Add synonyms for common terms
+
+**Files Created:**
+- Frontend: [src/components/MessageFeedback.js](src/components/MessageFeedback.js)
+- Frontend: [src/components/FeedbackModal.js](src/components/FeedbackModal.js)
+- Styles: [src/components/MessageFeedback.css](src/components/MessageFeedback.css)
+- Styles: [src/components/FeedbackModal.css](src/components/FeedbackModal.css)
+- API: [src/services/api.js:91-108](src/services/api.js#L91-L108) - submitFeedback()
+- Hook: [src/hooks/useChat.js:63-77](src/hooks/useChat.js#L63-L77) - Store query context
+- Backend: [chat_adapter.py:579-593](chat_adapter.py#L579-L593) - /api/feedback endpoint
+- Models: [chat_adapter.py:62-68](chat_adapter.py#L62-L68) - FeedbackRequest pydantic model
+
+**Files Modified:**
+- [src/components/StreamingMessage.js:217-220](src/components/StreamingMessage.js#L217-L220) - Integrated feedback buttons
+- [src/components/index.js:9-10](src/components/index.js#L9-L10) - Exported new components
+
+**Data Schema:**
+```python
+class FeedbackRequest(BaseModel):
+    type: str  # 'thumbs_up' or 'thumbs_down'
+    query_id: Optional[str] = None
+    user_question: Optional[str] = None
+    sql_query: Optional[str] = None
+    description: Optional[str] = None  # Only for thumbs_down
+    timestamp: str
+```
+
+**Future Enhancements:**
+
+When feedback volume increases, consider:
+
+1. **Analytics Dashboard:**
+   - Visualize feedback trends over time
+   - Group by query type, table, user
+   - Show thumbs up/down ratios per feature
+
+2. **Database Migration:**
+   - Move from `.jsonl` to PostgreSQL
+   - Add indexes for fast querying
+   - Enable real-time analytics
+
+3. **Feedback Categories:**
+   - Add structured issue types (wrong results, slow query, SQL error)
+   - Dropdown instead of free text
+   - Easier to categorize and fix
+
+4. **Admin Interface:**
+   - View feedback in UI
+   - Mark as resolved
+   - Track improvements
+
+5. **Automated Analysis:**
+   - Weekly reports of common issues
+   - Alerts for sudden quality drops
+   - A/B test prompt changes
+
+**Testing:**
+```bash
+# Submit test feedback
+curl -X POST http://localhost:8001/api/feedback \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "thumbs_down",
+    "query_id": "test-123",
+    "user_question": "Show all servers",
+    "sql_query": "SELECT * FROM servers",
+    "description": "Wrong results",
+    "timestamp": "2025-01-11T10:00:00Z"
+  }'
+
+# View feedback
+cat feedback.jsonl | jq .
+```
+
+**Related Decisions:**
+- ADR-015: Backend-for-Frontend Naming (this is a BFF-specific feature)
+- Feedback collection is chat UI-specific, not in core Netquery backend
+
+---
+
+## ADR-015: Backend-for-Frontend (BFF) Naming and Documentation
+
+**Status:** Accepted (2025-01-11)
+
+**Context:**
+The adapter layer was originally named `netquery_server.py`, which created confusion with the core backend (`~/Code/netquery/server.py`). Both files had FastAPI endpoints, and it wasn't immediately clear which layer was responsible for what functionality. This naming ambiguity made it harder for new developers to understand the architecture and violated the principle of explicit over implicit.
+
+**Problem:**
+```
+netquery-insight-chat/
+  ├── netquery_server.py    ← Adapter layer (BFF)
+  └── ...
+
+~/Code/netquery/
+  ├── server.py              ← Core backend
+  └── ...
+```
+
+Questions developers asked:
+- "Why do we have two servers?"
+- "Which endpoints should I call from the frontend?"
+- "Where should I add the feedback feature?"
+- "Why does the adapter have `/api/feedback` but backend doesn't?"
+
+**Decision:**
+Rename `netquery_server.py` → `chat_adapter.py` and add comprehensive documentation explaining the Backend-for-Frontend (BFF) pattern.
+
+**Changes Made:**
+
+1. **File Renamed:**
+   - `netquery_server.py` → `chat_adapter.py` (using git mv to preserve history)
+
+2. **References Updated:**
+   - [dev-start.sh](dev-start.sh#L70) - Startup script
+   - [package.json](package.json#L40) - npm backend script
+   - [README.md](README.md#L75) - Manual workflow section
+   - [README.md](README.md#L112) - Project layout
+   - [ARCHITECTURE_DECISIONS.md](ARCHITECTURE_DECISIONS.md) - All ADR references
+   - [chat_adapter.py](chat_adapter.py#L562) - uvicorn module reference
+
+3. **Architecture Documentation Added:**
+   - Comprehensive file header docstring ([chat_adapter.py:1-68](chat_adapter.py#L1-L68))
+   - ASCII diagram showing BFF architecture
+   - Clear responsibility matrix (what BFF does vs what backend does)
+   - Endpoint inventory with purpose
+
+4. **Endpoint-Level Documentation:**
+   Each endpoint now explicitly documents:
+   - BFF responsibilities (what adapter layer handles)
+   - Backend delegation (what core backend handles)
+   - Usage context (which UI component calls it)
+
+**Architecture Clarification:**
+
+```
+┌─────────────────────┐
+│  React Frontend     │  Port 3000 (This repo)
+└──────────┬──────────┘
+           │ HTTP
+┌──────────▼──────────┐
+│  Chat Adapter (BFF) │  Port 8001 (This repo)
+│  chat_adapter.py    │
+│                     │
+│  Responsibilities:  │
+│  • Sessions         │
+│  • Context building │
+│  • Streaming (SSE)  │
+│  • Feedback         │
+│  • Orchestration    │
+└──────────┬──────────┘
+           │ HTTP
+┌──────────▼──────────┐
+│  Netquery Backend   │  Port 8000 (~/Code/netquery)
+│  server.py          │
+│                     │
+│  Responsibilities:  │
+│  • SQL generation   │
+│  • Query execution  │
+│  • Interpretation   │
+│  • Schema metadata  │
+│  • Core logic       │
+└─────────────────────┘
+```
+
+**Endpoint Responsibility Matrix:**
+
+| Endpoint | Location | BFF Adds | Backend Provides |
+|----------|----------|----------|------------------|
+| POST /chat | Adapter | Sessions, context, streaming | SQL gen, execution, interpretation |
+| GET /health | Adapter | Combined status | Backend health |
+| GET /schema/overview | Adapter | Validation, formatting | Schema metadata |
+| GET /api/interpret/{id} | Adapter | Orchestration, formatting | Analysis & visualization |
+| GET /api/download/{id} | Adapter | UI headers, timeout handling | Full CSV data |
+| POST /api/feedback | Adapter only | **Entire feature** | N/A (UI-specific) |
+
+**Rationale:**
+
+1. **Naming Clarity:**
+   - `chat_adapter.py` clearly indicates it's an adapter
+   - Follows naming convention (purpose + layer type)
+   - No confusion with `server.py` in backend repo
+
+2. **Explicit Architecture:**
+   - BFF pattern is now explicit in code and docs
+   - Clear separation of concerns documented
+   - New developers can understand at a glance
+
+3. **Maintenance Benefits:**
+   - Endpoint responsibilities are documented
+   - Easy to decide where new features belong
+   - Reduces "where should this go?" questions
+
+4. **Industry Standards:**
+   - Follows BFF best practices
+   - Common pattern in microservices architectures
+   - Well-documented pattern with community resources
+
+**Example Documentation (chat_adapter.py header):**
+
+```python
+"""
+Chat Adapter - Backend-for-Frontend (BFF) Layer
+================================================
+
+RESPONSIBILITIES OF THIS ADAPTER (BFF):
+---------------------------------------
+✓ Session & Conversation Management
+✓ Streaming Responses (Server-Sent Events)
+✓ UI-Specific Features (feedback, formatting)
+✓ Request Orchestration
+
+RESPONSIBILITIES OF NETQUERY BACKEND (Core):
+--------------------------------------------
+✓ SQL Generation from natural language
+✓ Query execution against database
+✓ Data interpretation and analysis
+✗ NOT responsible for: sessions, streaming, UI features
+"""
+```
+
+**Consequences:**
+
+**Positive:**
+- ✅ **Clear architecture** - No confusion about responsibilities
+- ✅ **Better onboarding** - New developers understand quickly
+- ✅ **Maintenance clarity** - Easy to decide where features belong
+- ✅ **Standard pattern** - Follows BFF best practices
+- ✅ **Self-documenting** - File name indicates purpose
+- ✅ **Scalability** - Clear boundaries for future features
+
+**Negative:**
+- ❌ **Breaking change** - Requires updating references (done)
+- ❌ **Documentation overhead** - Need to maintain clarity (acceptable)
+
+**Trade-offs:**
+- Chose explicit over implicit: File name clearly indicates role
+- Chose documentation over inference: Better to over-document than under-document
+- Chose standard patterns over custom: BFF is well-understood pattern
+
+**Files Changed:**
+- Renamed: [chat_adapter.py](chat_adapter.py) (was netquery_server.py)
+- Updated: [dev-start.sh](dev-start.sh#L70), [package.json](package.json#L40), [README.md](README.md#L75)
+- Documentation: [ARCHITECTURE_DECISIONS.md](ARCHITECTURE_DECISIONS.md) (this file)
+
+**Migration Notes:**
+- All references updated in same commit
+- Git history preserved using `git mv`
+- No breaking changes for users (same endpoints)
+- Improved startup banner shows architecture clearly
+
+**Related Decisions:**
+- ADR-001: Three-Tier Architecture (this clarifies the middle tier)
+- ADR-012: Server-Sent Events (BFF feature, not in core backend)
+- This ADR makes explicit what was implicit in ADR-001
+
+**Guidelines for Future Development:**
+
+**Add to Chat Adapter (BFF) if:**
+- ✅ Chat UI-specific feature (feedback, preferences)
+- ✅ Requires session/conversation state
+- ✅ Needs to orchestrate multiple backend calls
+- ✅ Transforms data for specific UI needs
+- ✅ Implements chat-specific protocols (SSE, WebSocket)
+
+**Add to Netquery Backend if:**
+- ✅ Core SQL/data functionality
+- ✅ Reusable across multiple UIs (CLI, API, chat)
+- ✅ Business logic independent of presentation
+- ✅ Database interactions
+- ✅ Domain-specific logic (schema, embeddings)
+
+**When in doubt:** If it's chat UI-specific → adapter. If it's reusable data logic → backend.
 
 ---
 
