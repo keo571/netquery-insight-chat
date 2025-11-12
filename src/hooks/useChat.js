@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef } from 'react';
 import { queryAgent } from '../services/api';
 import { debugLog } from '../utils/debug';
+import { getUserFriendlyError } from '../utils/errorMessages';
 
 export const useChat = () => {
   const [messages, setMessages] = useState([]);
@@ -67,7 +68,9 @@ export const useChat = () => {
                 ? {
                     ...msg,
                     sql_explanation: event.explanation,
+                    sql_query: event.sql,
                     query_id: event.query_id,
+                    user_question: query,
                     loadingStates: { ...msg.loadingStates, sql: true }
                   }
                 : msg
@@ -169,12 +172,13 @@ export const useChat = () => {
             break;
 
           case 'error':
-            // Handle error
+            // Handle error with user-friendly message
+            const friendlyErrorMsg = getUserFriendlyError(event.message || event, 'streaming');
             setMessages(prev => prev.map(msg =>
               msg.id === agentMessageId
                 ? {
                     ...msg,
-                    content: `Error: ${event.message}`,
+                    content: friendlyErrorMsg,
                     isError: true,
                     isLoading: false
                   }
@@ -189,9 +193,13 @@ export const useChat = () => {
       });
 
     } catch (error) {
+      // Remove the placeholder message and show user-friendly error
+      setMessages(prev => prev.filter(msg => msg.id !== agentMessageId));
+
+      const friendlyMessage = error.message || getUserFriendlyError(error, 'general');
       const errorMessage = {
         id: Date.now() + 1,
-        content: `Error: ${error.message}`,
+        content: friendlyMessage,
         timestamp: new Date().toISOString(),
         isUser: false,
         isError: true

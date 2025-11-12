@@ -15,6 +15,7 @@ import { fetchSchemaOverview } from './services/api';
 
 // Utils
 import { AGENT_CONFIG } from './utils/constants';
+import { getUserFriendlyError } from './utils/errorMessages';
 
 function App() {
   const [currentQuery, setCurrentQuery] = useState('');
@@ -38,7 +39,8 @@ function App() {
         }
       } catch (err) {
         if (isMounted) {
-          setSchemaError(err.message || 'Failed to load schema overview');
+          const friendlyError = err.message || getUserFriendlyError(err, 'schema');
+          setSchemaError(friendlyError);
         }
       } finally {
         if (isMounted) {

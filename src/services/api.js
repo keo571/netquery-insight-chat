@@ -1,3 +1,5 @@
+import { getUserFriendlyError } from '../utils/errorMessages';
+
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8001';
 
 export const queryAgent = async (query, sessionId = null, onEvent) => {
@@ -20,7 +22,8 @@ export const queryAgent = async (query, sessionId = null, onEvent) => {
         });
 
         if (!response.ok) {
-            throw new Error('Failed to start streaming query');
+            const error = new Error(`HTTP ${response.status}: ${response.statusText}`);
+            throw error;
         }
 
         const reader = response.body.getReader();
@@ -57,8 +60,11 @@ export const queryAgent = async (query, sessionId = null, onEvent) => {
             }
         }
     } catch (error) {
-        console.error('Streaming API Error:', error);
-        throw error;
+        // Create user-friendly error for streaming context
+        const friendlyMessage = getUserFriendlyError(error, 'streaming');
+        const userError = new Error(friendlyMessage);
+        userError.originalError = error; // Keep original for debugging
+        throw userError;
     }
 };
 
@@ -66,12 +72,15 @@ export const fetchSchemaOverview = async () => {
     try {
         const response = await fetch(`${API_URL}/schema/overview`);
         if (!response.ok) {
-            throw new Error('Failed to load schema overview');
+            const error = new Error(`HTTP ${response.status}: ${response.statusText}`);
+            throw error;
         }
         return await response.json();
     } catch (error) {
-        console.error('Schema overview error:', error);
-        throw error;
+        const friendlyMessage = getUserFriendlyError(error, 'schema');
+        const userError = new Error(friendlyMessage);
+        userError.originalError = error;
+        throw userError;
     }
 };
 
@@ -79,11 +88,36 @@ export const fetchInterpretation = async (queryId) => {
     try {
         const response = await fetch(`${API_URL}/api/interpret/${queryId}`);
         if (!response.ok) {
-            throw new Error('Failed to load interpretation');
+            const error = new Error(`HTTP ${response.status}: ${response.statusText}`);
+            throw error;
         }
         return await response.json();
     } catch (error) {
-        console.error('Interpretation error:', error);
-        throw error;
+        const friendlyMessage = getUserFriendlyError(error, 'general');
+        const userError = new Error(friendlyMessage);
+        userError.originalError = error;
+        throw userError;
+    }
+};
+
+export const submitFeedback = async (feedbackData) => {
+    try {
+        const response = await fetch(`${API_URL}/api/feedback`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(feedbackData),
+        });
+        if (!response.ok) {
+            const error = new Error(`HTTP ${response.status}: ${response.statusText}`);
+            throw error;
+        }
+        return await response.json();
+    } catch (error) {
+        const friendlyMessage = getUserFriendlyError(error, 'feedback');
+        const userError = new Error(friendlyMessage);
+        userError.originalError = error;
+        throw userError;
     }
 };

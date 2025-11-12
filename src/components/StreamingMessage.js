@@ -3,7 +3,9 @@ import PropTypes from 'prop-types';
 import ReactMarkdown from 'react-markdown';
 import PaginatedTable from './PaginatedTable';
 import DataVisualization from './DataVisualization';
+import MessageFeedback from './MessageFeedback';
 import { fetchInterpretation } from '../services/api';
+import { getUserFriendlyError } from '../utils/errorMessages';
 import './Message.css';
 
 // Helper component for visualization
@@ -111,8 +113,8 @@ const StreamingMessage = React.memo(({
       const data = await fetchInterpretation(message.query_id);
       onUpdateAnalysis(message.id, data);
     } catch (error) {
-      console.error('Failed to fetch interpretation:', error);
-      setAnalysisError(error.message || 'Failed to load analysis');
+      const friendlyError = error.message || getUserFriendlyError(error, 'general');
+      setAnalysisError(friendlyError);
     } finally {
       setLoadingAnalysis(false);
     }
@@ -212,6 +214,11 @@ const StreamingMessage = React.memo(({
               suggestedQueries={message.suggestedQueries}
               schemaOverview={message.schemaOverview}
             />
+
+            {/* Feedback buttons - only show for agent responses with query_id */}
+            {!message.isLoading && (
+              <MessageFeedback message={message} />
+            )}
           </div>
         )}
       </div>
@@ -227,10 +234,14 @@ StreamingMessage.propTypes = {
     content: PropTypes.string.isRequired,
     timestamp: PropTypes.string.isRequired,
     sql_explanation: PropTypes.string,
+    sql_query: PropTypes.string,
+    user_question: PropTypes.string,
+    query_id: PropTypes.string,
     analysis_explanation: PropTypes.string,
     visualization_path: PropTypes.string,
     results: PropTypes.any,
     isError: PropTypes.bool,
+    isLoading: PropTypes.bool,
     suggestedQueries: PropTypes.arrayOf(PropTypes.string),
     schemaOverview: PropTypes.object
   }).isRequired,
