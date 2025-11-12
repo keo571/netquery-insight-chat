@@ -1,12 +1,70 @@
 #!/usr/bin/env python3
 """
-Backend adapter between the Netquery FastAPI API and the React chat UI.
+Chat Adapter - Backend-for-Frontend (BFF) Layer
+================================================
+
+This adapter sits between the React chat UI and the Netquery core backend API.
+It implements the Backend-for-Frontend (BFF) pattern to optimize the API for
+the specific needs of the chat interface.
+
+ARCHITECTURE:
+-------------
+  Frontend (React, port 3000)
+         ↓ HTTP requests
+  Chat Adapter (this file, port 8001)  ← BFF Layer
+         ↓ HTTP requests
+  Netquery Backend (~/Code/netquery/server.py, port 8000)  ← Core Service
+         ↓ SQL queries
+  PostgreSQL / SQLite Database
+
+RESPONSIBILITIES OF THIS ADAPTER (BFF):
+---------------------------------------
+✓ Session & Conversation Management
+  - Track chat sessions with 1-hour timeout
+  - Store conversation history for context-aware follow-ups
+  - Build context prompts from previous exchanges
+
+✓ Streaming Responses (Server-Sent Events)
+  - Stream SQL, data, analysis, and visualization progressively
+  - Provide real-time feedback during multi-step queries
+  - Improve perceived performance (users see data faster)
+
+✓ UI-Specific Features
+  - User feedback collection (thumbs up/down)
+  - Chat-specific endpoints optimized for frontend
+  - Data transformation and formatting for chat UI
+
+✓ Request Orchestration
+  - Coordinate multiple Netquery backend calls
+  - Combine generate-sql → execute → interpret into single /chat endpoint
+  - Handle errors and retries at the BFF layer
+
+RESPONSIBILITIES OF NETQUERY BACKEND (Core):
+--------------------------------------------
+✓ SQL Generation from natural language
+✓ Query execution against database
+✓ Data interpretation and analysis
+✓ Schema management
+✓ Core business logic
+✗ NOT responsible for: sessions, streaming, UI features
 
 IMPORTANT DATA LIMITS:
-- Backend caches maximum 50 rows per query
-- Interpretation and visualization use ONLY these 50 cached rows
-- For datasets > 50 rows, analysis is based on a sample
+----------------------
+- Backend caches maximum 40 rows per query
+- Interpretation and visualization use ONLY these 40 cached rows
+- For datasets > 40 rows, analysis is based on a sample
 - Full data download available via CSV export
+
+ENDPOINTS:
+----------
+POST /chat                  - Main chat endpoint (SSE streaming)
+GET  /health                - Health check (checks Netquery backend)
+GET  /schema/overview       - Proxy to Netquery with UI formatting
+GET  /api/interpret/{id}    - On-demand interpretation (lazy loading)
+GET  /api/download/{id}     - CSV download with UI-friendly headers
+POST /api/feedback          - User feedback collection (UI-specific)
+
+For more details, see ARCHITECTURE_DECISIONS.md
 """
 
 import logging
@@ -58,6 +116,14 @@ class SchemaOverviewResponse(BaseModel):
     schema_id: Optional[str] = None
     tables: List[Dict[str, Any]] = Field(default_factory=list)
     suggested_queries: List[str] = Field(default_factory=list)
+
+class FeedbackRequest(BaseModel):
+    type: str  # 'thumbs_up' or 'thumbs_down'
+    query_id: Optional[str] = None
+    user_question: Optional[str] = None
+    sql_query: Optional[str] = None
+    description: Optional[str] = None
+    timestamp: str
 
 
 # Session Management
@@ -178,11 +244,11 @@ def build_analysis_explanation(interpretation_data: dict, total_count: Optional[
             parts.append(f"{i}. {finding}\n")
         parts.append("\n")
 
-    # Show analysis limitations only when dataset > 50 rows
-    if total_count and total_count > 50:
-        parts.append(f"**Analysis Note:**\n\nInsights based on first 50 rows of {total_count} rows. Download full dataset for complete analysis.\n\n")
+    # Show analysis limitations only when dataset > 40 rows
+    if total_count and total_count > 40:
+        parts.append(f"**Analysis Note:**\n\nInsights based on first 40 rows of {total_count} rows. Download full dataset for complete analysis.\n\n")
     elif total_count is None:
-        parts.append("**Analysis Note:**\n\nInsights based on first 50 rows of more than 1000 rows. Download full dataset for complete analysis.\n\n")
+        parts.append("**Analysis Note:**\n\nInsights based on first 40 rows of more than 1000 rows. Download full dataset for complete analysis.\n\n")
 
     return "".join(parts)
 
@@ -271,10 +337,28 @@ class NetqueryFastAPIClient:
 netquery_client = NetqueryFastAPIClient()
 
 
-# API Endpoints
+# =============================================================================
+# API ENDPOINTS
+# =============================================================================
+
 @app.post("/chat")
 async def chat_endpoint(request: ChatRequest):
-    """Handle chat requests with streaming responses."""
+    """
+    Main chat endpoint - Orchestrates the full chat workflow via SSE streaming.
+
+    BFF Responsibilities:
+    - Manage session and conversation context
+    - Build context-aware prompts from chat history
+    - Orchestrate: generate-sql → execute → interpret (optional)
+    - Stream results progressively (SQL → data → analysis → visualization)
+
+    Delegates to Netquery Backend:
+    - SQL generation: POST /api/generate-sql
+    - Query execution: GET /api/execute/{query_id}
+    - Interpretation: POST /api/interpret/{query_id}
+
+    Returns: Server-Sent Events (SSE) stream with progressive updates
+    """
 
     async def event_generator():
         try:
@@ -360,7 +444,17 @@ async def chat_endpoint(request: ChatRequest):
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint."""
+    """
+    Health check endpoint - Verifies adapter and Netquery backend connectivity.
+
+    BFF Responsibilities:
+    - Check own health
+    - Verify Netquery backend is reachable
+    - Return combined health status
+
+    Delegates to Netquery Backend:
+    - GET /health (backend health check)
+    """
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             response = await client.get(f"{netquery_client.base_url}/health")
@@ -383,7 +477,18 @@ async def health_check():
 
 @app.get("/schema/overview", response_model=SchemaOverviewResponse)
 async def schema_overview_endpoint():
-    """Get schema overview from Netquery API."""
+    """
+    Schema overview endpoint - Proxies schema metadata from Netquery backend.
+
+    BFF Responsibilities:
+    - Validate and format schema data for UI
+    - Apply Pydantic model for type safety
+
+    Delegates to Netquery Backend:
+    - GET /api/schema/overview (schema metadata)
+
+    Used by: Frontend welcome screen to show available tables
+    """
     try:
         overview = await netquery_client.schema_overview()
         return SchemaOverviewResponse(**overview)
@@ -393,7 +498,20 @@ async def schema_overview_endpoint():
 
 @app.get("/api/interpret/{query_id}")
 async def get_interpretation_endpoint(query_id: str):
-    """Get interpretation and visualization for a given query_id on demand."""
+    """
+    On-demand interpretation endpoint - Lazy-loads analysis and visualization.
+
+    BFF Responsibilities:
+    - Orchestrate execute + interpret calls
+    - Build interpretation payload with formatting
+    - Add data limit warnings for UI
+
+    Delegates to Netquery Backend:
+    - GET /api/execute/{query_id} (get cached data for row count)
+    - POST /api/interpret/{query_id} (generate analysis)
+
+    Used by: "Show Analysis" button in chat UI (progressive disclosure)
+    """
     try:
         async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
             logger.info(f"Fetching interpretation for query_id: {query_id}")
@@ -418,7 +536,19 @@ async def get_interpretation_endpoint(query_id: str):
 
 @app.get("/api/download/{query_id}")
 async def download_csv_endpoint(query_id: str):
-    """Download full dataset as CSV for a given query_id."""
+    """
+    CSV download endpoint - Proxies full dataset download with UI enhancements.
+
+    BFF Responsibilities:
+    - Add user-friendly filename headers
+    - Handle download timeouts gracefully
+    - Provide UI-friendly error messages
+
+    Delegates to Netquery Backend:
+    - GET /api/download/{query_id} (full dataset CSV)
+
+    Used by: Download buttons in data tables (bypasses 40-row cache limit)
+    """
     try:
         async with httpx.AsyncClient(timeout=DOWNLOAD_TIMEOUT) as client:
             logger.info(f"Downloading full dataset for query_id: {query_id}")
@@ -446,13 +576,63 @@ async def download_csv_endpoint(query_id: str):
         raise HTTPException(status_code=500, detail=f"Download error: {str(e)}")
 
 
+@app.post("/api/feedback")
+async def submit_feedback_endpoint(request: FeedbackRequest):
+    """
+    User feedback endpoint - Collects thumbs up/down feedback from chat UI.
+
+    BFF Responsibilities:
+    - Store user feedback in feedback.jsonl file
+    - Collect query context (user question, SQL, query_id)
+    - This is a UI-specific feature (not in core Netquery backend)
+
+    Does NOT delegate to backend - purely chat UI feature
+
+    Used by: Thumbs up/down buttons in chat messages
+    Storage: feedback.jsonl (JSON Lines format for easy analysis)
+    """
+    try:
+        feedback_file = "feedback.jsonl"
+
+        # Prepare feedback data
+        feedback_data = {
+            "type": request.type,
+            "query_id": request.query_id,
+            "user_question": request.user_question,
+            "sql_query": request.sql_query,
+            "description": request.description,
+            "timestamp": request.timestamp
+        }
+
+        # Append to JSONL file (one JSON object per line)
+        with open(feedback_file, "a") as f:
+            f.write(json.dumps(feedback_data) + "\n")
+
+        logger.info(f"Feedback saved: {request.type} for query_id: {request.query_id}")
+
+        return {"status": "success", "message": "Feedback submitted successfully"}
+
+    except Exception as e:
+        logger.error(f"Failed to save feedback: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to save feedback: {str(e)}")
+
+
 if __name__ == "__main__":
     netquery_url = os.getenv("NETQUERY_API_URL", "http://localhost:8000")
     adapter_port = int(os.getenv("ADAPTER_PORT", "8001"))
 
-    print("Starting Netquery Insight Chat - FastAPI Adapter")
-    print(f"Will connect to Netquery API at: {netquery_url}")
-    print(f"Frontend should connect to: http://localhost:{adapter_port}")
+    print("=" * 60)
+    print("Netquery Chat Adapter (BFF Layer)")
+    print("=" * 60)
+    print(f"Adapter (BFF):      http://localhost:{adapter_port}")
+    print(f"Netquery Backend:   {netquery_url}")
+    print(f"Frontend UI:        http://localhost:3000 (when started)")
+    print()
+    print("This adapter orchestrates chat-specific features:")
+    print("  • Session & conversation management")
+    print("  • Streaming responses (SSE)")
+    print("  • User feedback collection")
+    print("=" * 60)
     print()
 
-    uvicorn.run("netquery_server:app", host="0.0.0.0", port=adapter_port, reload=True)
+    uvicorn.run("chat_adapter:app", host="0.0.0.0", port=adapter_port, reload=True)
