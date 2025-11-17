@@ -1,9 +1,13 @@
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import PropTypes from 'prop-types';
 import { debugLog } from '../utils/debug';
 import './PaginatedTable.css';
 
 const BACKEND_API_URL = process.env.REACT_APP_NETQUERY_API_URL || 'http://localhost:8000';
+
+// Pagination constants - aligned with backend MAX_CACHE_ROWS (30)
+const DEFAULT_PAGE_SIZE = 15;  // Initial rows to display
+const MAX_CACHED_ROWS = 30;    // Maximum rows cached by backend
 
 // Helper function to trigger browser download
 const triggerBrowserDownload = (url, filename = '') => {
@@ -27,8 +31,13 @@ const convertToCSV = (data) => {
   return [headers.join(','), ...rows].join('\n');
 };
 
-const PaginatedTable = ({ data, pageSize = 20, maxDisplay = 40, displayInfo, queryId }) => {
+const PaginatedTable = ({ data, pageSize = DEFAULT_PAGE_SIZE, maxDisplay = MAX_CACHED_ROWS, displayInfo, queryId }) => {
   const [displayedRows, setDisplayedRows] = useState(pageSize);
+
+  // Reset displayedRows when new data arrives
+  useEffect(() => {
+    setDisplayedRows(pageSize);
+  }, [data, pageSize]);
 
   // Load more rows handler
   const handleLoadMore = useCallback(() => {
@@ -107,17 +116,37 @@ const PaginatedTable = ({ data, pageSize = 20, maxDisplay = 40, displayInfo, que
     return value !== null && value !== undefined ? String(value) : '';
   };
 
+  // Generate display message based on data state
+  const getDisplayMessage = () => {
+    const hasMoreInDataset = displayInfo?.total_in_dataset && displayInfo.total_in_dataset > totalRows;
+    const showingAll = visibleData.length === totalRows;
+    const isCached = totalRows === MAX_CACHED_ROWS;
+
+    if (showingAll && isCached && hasMoreInDataset) {
+      // Showing all cached rows, more exist in dataset
+      return `Showing all ${MAX_CACHED_ROWS} cached rows (${displayInfo.total_in_dataset} total in dataset)`;
+    }
+
+    if (showingAll && !hasMoreInDataset) {
+      // Showing complete dataset (< MAX_CACHED_ROWS rows, no caching)
+      return `Showing all ${totalRows} rows`;
+    }
+
+    // Showing partial cached data (with Load More available)
+    return (
+      <>
+        Showing {visibleData.length} of {totalRows} {isCached ? 'cached rows' : 'rows'}
+        {hasMoreInDataset && <span> ({displayInfo.total_in_dataset} total in dataset)</span>}
+      </>
+    );
+  };
+
   return (
     <div className="paginated-table-container">
       <div className="data-preview-header">Data Preview:</div>
 
       <div className="table-header">
-        <span className="row-info">
-          Showing {visibleData.length} of {totalRows} rows
-          {displayInfo?.total_in_dataset && (
-            <span> (total in dataset: {displayInfo.total_in_dataset})</span>
-          )}
-        </span>
+        <span className="row-info">{getDisplayMessage()}</span>
         <div className="download-buttons">{renderDownloadButton()}</div>
       </div>
 
@@ -144,7 +173,7 @@ const PaginatedTable = ({ data, pageSize = 20, maxDisplay = 40, displayInfo, que
 
       {hasMore && (
         <button className="load-more-btn" onClick={handleLoadMore}>
-          Load {Math.min(pageSize, maxDisplay - displayedRows)} more rows
+          Load More
         </button>
       )}
     </div>

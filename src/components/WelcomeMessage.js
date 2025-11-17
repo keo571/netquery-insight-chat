@@ -24,6 +24,11 @@ const WelcomeMessage = ({ title, message, tables, suggestedQueries, loading, err
               </li>
             ))}
           </ul>
+          {tables.length > 4 && (
+            <div className="more-indicator">
+              ... and {tables.length - 4} more
+            </div>
+          )}
         </div>
       )}
 
@@ -31,7 +36,7 @@ const WelcomeMessage = ({ title, message, tables, suggestedQueries, loading, err
         <div className="welcome-section">
           <h4>Suggested prompts</h4>
           <ul>
-            {suggestedQueries.slice(0, 5).map((prompt, index) => (
+            {suggestedQueries.slice(0, 4).map((prompt, index) => (
               <li key={`${prompt}-${index}`}>{prompt}</li>
             ))}
           </ul>

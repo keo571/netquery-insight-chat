@@ -35,17 +35,38 @@ ConditionalVisualization.propTypes = {
   data: PropTypes.array
 };
 
-// Helper component for loading state
-const LoadingSection = ({ message }) => (
-  <div className="loading-section fade-in">
-    <div className="loading-spinner"></div>
-    <span>{message}</span>
-  </div>
-);
+// Loading messages
+const LOADING_MESSAGES = [
+  "Almost there...",
+  "Just a moment...",
+  "Working on it...",
+  "Nearly done..."
+];
 
-LoadingSection.propTypes = {
-  message: PropTypes.string.isRequired
+// Helper component for loading state with rotating messages
+const LoadingSection = () => {
+  const [message, setMessage] = useState('');
+
+  useEffect(() => {
+    // Pick random starting message
+    setMessage(LOADING_MESSAGES[Math.floor(Math.random() * LOADING_MESSAGES.length)]);
+
+    // Rotate messages every 2 seconds
+    const interval = setInterval(() => {
+      setMessage(LOADING_MESSAGES[Math.floor(Math.random() * LOADING_MESSAGES.length)]);
+    }, 2000);
+
+    return () => clearInterval(interval);
+  }, []);
+
+  return (
+    <div className="loading-section fade-in">
+      <div className="loading-spinner"></div>
+      <span>{message}</span>
+    </div>
+  );
 };
+
 
 // Helper component for guidance panel
 const GuidancePanel = ({ suggestedQueries, schemaOverview }) => {
@@ -59,13 +80,18 @@ const GuidancePanel = ({ suggestedQueries, schemaOverview }) => {
         <div className="guidance-section">
           <h4>Key datasets I know</h4>
           <ul>
-            {schemaOverview.tables.slice(0, 5).map((table) => (
+            {schemaOverview.tables.slice(0, 4).map((table) => (
               <li key={table.name}>
                 <strong>{table.name}</strong>
                 {table.description && <span> — {table.description}</span>}
               </li>
             ))}
           </ul>
+          {schemaOverview.tables.length > 4 && (
+            <div className="more-indicator">
+              ... and {schemaOverview.tables.length - 4} more
+            </div>
+          )}
         </div>
       )}
 
@@ -73,7 +99,7 @@ const GuidancePanel = ({ suggestedQueries, schemaOverview }) => {
         <div className="guidance-section">
           <h4>Suggested prompts</h4>
           <ul>
-            {suggestedQueries.slice(0, 5).map((suggestion, index) => (
+            {suggestedQueries.slice(0, 4).map((suggestion, index) => (
               <li key={`${suggestion}-${index}`}>{suggestion}</li>
             ))}
           </ul>
@@ -133,9 +159,11 @@ const StreamingMessage = React.memo(({
           <div className="user-query">{displayedContent}</div>
         ) : (
           <div className="agent-response">
-            <div className="response-text">
-              <ReactMarkdown>{displayedContent}</ReactMarkdown>
-            </div>
+            {displayedContent && (
+              <div className="response-text">
+                <ReactMarkdown>{displayedContent}</ReactMarkdown>
+              </div>
+            )}
 
             {message.visualization_path && (
               <div className="visualization fade-in">
@@ -157,13 +185,11 @@ const StreamingMessage = React.memo(({
 
             {/* 2. Data section - show loading or table */}
             {message.isLoading && !message.loadingStates?.data ? (
-              <LoadingSection message="Loading data..." />
+              <LoadingSection type="data" />
             ) : message.results && (
               <div className="results-table fade-in">
                 <PaginatedTable
                   data={message.results}
-                  pageSize={message.display_info?.initial_display || 20}
-                  maxDisplay={message.results.length}
                   displayInfo={message.display_info}
                   queryId={message.query_id}
                 />
@@ -185,7 +211,7 @@ const StreamingMessage = React.memo(({
 
             {/* Show loading state when fetching analysis */}
             {loadingAnalysis && (
-              <LoadingSection message="Loading analysis and visualization..." />
+              <LoadingSection type="analysis" />
             )}
 
             {/* Show error if analysis fetch failed */}

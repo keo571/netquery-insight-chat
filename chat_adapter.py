@@ -50,9 +50,9 @@ RESPONSIBILITIES OF NETQUERY BACKEND (Core):
 
 IMPORTANT DATA LIMITS:
 ----------------------
-- Backend caches maximum 40 rows per query
-- Interpretation and visualization use ONLY these 40 cached rows
-- For datasets > 40 rows, analysis is based on a sample
+- Backend caches maximum 30 rows per query
+- Interpretation and visualization use ONLY these 30 cached rows
+- For datasets > 30 rows, analysis is based on a sample
 - Full data download available via CSV export
 
 ENDPOINTS:
@@ -88,7 +88,7 @@ logger = logging.getLogger(__name__)
 SESSION_TIMEOUT = timedelta(hours=1)
 MAX_CONVERSATION_HISTORY = 5
 RECENT_EXCHANGES_FOR_CONTEXT = 3
-DEFAULT_FRONTEND_INITIAL_ROWS = 20
+DEFAULT_FRONTEND_INITIAL_ROWS = 30
 DEFAULT_TIMEOUT = 30.0
 DOWNLOAD_TIMEOUT = 300.0
 
@@ -244,11 +244,11 @@ def build_analysis_explanation(interpretation_data: dict, total_count: Optional[
             parts.append(f"{i}. {finding}\n")
         parts.append("\n")
 
-    # Show analysis limitations only when dataset > 40 rows
-    if total_count and total_count > 40:
-        parts.append(f"**Analysis Note:**\n\nInsights based on first 40 rows of {total_count} rows. Download full dataset for complete analysis.\n\n")
+    # Show analysis limitations only when dataset > 30 rows
+    if total_count and total_count > 30:
+        parts.append(f"**Analysis Note:**\n\nInsights based on first 30 rows of {total_count} rows. Download full dataset for complete analysis.\n\n")
     elif total_count is None:
-        parts.append("**Analysis Note:**\n\nInsights based on first 40 rows of more than 1000 rows. Download full dataset for complete analysis.\n\n")
+        parts.append("**Analysis Note:**\n\nInsights based on first 30 rows of more than 1000 rows. Download full dataset for complete analysis.\n\n")
 
     return "".join(parts)
 
@@ -380,13 +380,20 @@ async def chat_endpoint(request: ChatRequest):
                     query_id, sql = await netquery_client.generate_sql(client, contextualized_message)
                 except httpx.HTTPStatusError as exc:
                     if exc.response.status_code == 422:
-                        # Handle schema guidance response
+                        # Handle both triage rejection and SQL generation errors
                         detail = exc.response.json().get("detail", {})
-                        yield yield_sse_event('guidance', {
+                        error_type = detail.get("type", "generation_error")
+
+                        # Build guidance payload
+                        guidance_payload = {
                             "message": detail.get("message", "I couldn't map that request to known data."),
                             "schema_overview": detail.get("schema_overview"),
                             "suggested_queries": detail.get("suggested_queries", [])
-                        })
+                        }
+
+                        # For triage rejections, the message already contains helpful suggestions
+                        # For generation errors, we include schema_overview for context
+                        yield yield_sse_event('guidance', guidance_payload)
                         yield yield_sse_event('done', {})
                         return
                     raise
