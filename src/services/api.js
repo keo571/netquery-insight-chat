@@ -1,11 +1,12 @@
 import { getUserFriendlyError } from '../utils/errorMessages';
 
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8001';
+const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8002';
 
-export const queryAgent = async (query, sessionId = null, onEvent) => {
+export const queryAgent = async (query, sessionId = null, onEvent, database = 'sample') => {
     try {
         const requestBody = {
-            message: query
+            message: query,
+            database: database  // Include selected database
         };
 
         // Include session ID if provided (for conversation continuity)
@@ -68,25 +69,27 @@ export const queryAgent = async (query, sessionId = null, onEvent) => {
     }
 };
 
-export const fetchSchemaOverview = async () => {
+/**
+ * Fetch the schema overview from the backend
+ * @param {string} database - The database name (e.g., 'sample', 'neila')
+ * @returns {Promise<Object>} Schema overview data
+ */
+export const fetchSchemaOverview = async (database = 'sample') => {
     try {
-        const response = await fetch(`${API_URL}/schema/overview`);
+        const response = await fetch(`${API_URL}/schema/overview?database=${encodeURIComponent(database)}`);
         if (!response.ok) {
-            const error = new Error(`HTTP ${response.status}: ${response.statusText}`);
-            throw error;
+            throw new Error(`Failed to fetch schema: ${response.statusText}`);
         }
         return await response.json();
     } catch (error) {
-        const friendlyMessage = getUserFriendlyError(error, 'schema');
-        const userError = new Error(friendlyMessage);
-        userError.originalError = error;
-        throw userError;
+        console.error('Error fetching schema overview:', error);
+        throw error;
     }
 };
 
-export const fetchInterpretation = async (queryId) => {
-    try {
-        const response = await fetch(`${API_URL}/api/interpret/${queryId}`);
+export const fetchInterpretation = async (queryId, database = 'sample') => {
+    try{
+        const response = await fetch(`${API_URL}/api/interpret/${queryId}?database=${encodeURIComponent(database)}`);
         if (!response.ok) {
             const error = new Error(`HTTP ${response.status}: ${response.statusText}`);
             throw error;

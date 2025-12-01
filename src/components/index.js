@@ -7,3 +7,8 @@ export { default as PaginatedTable } from './PaginatedTable';
 export { default as StreamingMessage } from './StreamingMessage';
 export { default as MessageFeedback } from './MessageFeedback';
 export { default as FeedbackModal } from './FeedbackModal';
+export { default as Sidebar } from './Sidebar';
+export { default as SchemaModal } from './SchemaModal';
+export { default as DatabaseSelector } from './DatabaseSelector';
+export { default as AcknowledgementModal } from './AcknowledgementModal';
+export { default as Toast } from './Toast';

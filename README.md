@@ -35,7 +35,7 @@ cp .env.example .env
 ./dev-start.sh
 ```
 
-The frontend script checks that Netquery backend is running, then starts the adapter (8001) and React dev server (3000). Visit [http://localhost:3000](http://localhost:3000) when ready.
+The frontend script checks that Netquery backend is running, then starts the adapter (8002) and React dev server (3000). Visit [http://localhost:3000](http://localhost:3000) when ready.
 
 **Stop Services:**
 ```bash

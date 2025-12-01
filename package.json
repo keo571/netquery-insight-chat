@@ -21,11 +21,14 @@
     "url": "https://github.com/keo571/netquery-insight-chat.git"
   },
   "dependencies": {
+    "d3-force": "^3.0.0",
+    "dagre": "^0.8.5",
     "prop-types": "^15.8.1",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "react-markdown": "^10.1.0",
     "react-scripts": "5.0.1",
+    "reactflow": "^11.11.4",
     "recharts": "^3.2.1"
   },
   "scripts": {

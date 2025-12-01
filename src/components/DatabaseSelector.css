@@ -1,0 +1,131 @@
+.database-selector {
+    position: relative;
+    display: inline-block;
+}
+
+.database-selector-button {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    background: linear-gradient(135deg, #003B70 0%, #0056b3 100%);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    font-family: 'Inter', sans-serif;
+}
+
+.database-selector-button:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+}
+
+.database-selector-button:active {
+    transform: translateY(0);
+}
+
+.database-icon {
+    font-size: 16px;
+}
+
+.database-name {
+    text-transform: capitalize;
+    font-weight: 600;
+}
+
+.dropdown-arrow {
+    font-size: 10px;
+    transition: transform 0.2s ease;
+    margin-left: 4px;
+}
+
+.dropdown-arrow.open {
+    transform: rotate(180deg);
+}
+
+.database-dropdown {
+    position: absolute;
+    top: calc(100% + 8px);
+    left: 0;
+    min-width: 180px;
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.15);
+    overflow: hidden;
+    z-index: 1000;
+    animation: dropdownFadeIn 0.2s ease;
+}
+
+@keyframes dropdownFadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(-8px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.database-option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 12px 16px;
+    background: white;
+    border: none;
+    border-bottom: 1px solid #E2E8F0;
+    font-size: 14px;
+    color: #333;
+    cursor: pointer;
+    transition: background 0.15s ease;
+    text-align: left;
+    font-family: 'Inter', sans-serif;
+    text-transform: capitalize;
+}
+
+.database-option:last-child {
+    border-bottom: none;
+}
+
+.database-option:hover {
+    background: #F8FAFC;
+}
+
+.database-option.selected {
+    background: #E6F2FF;
+    color: #003B70;
+    font-weight: 600;
+}
+
+.check-icon {
+    margin-left: auto;
+    color: #00A9E0;
+    font-weight: bold;
+}
+
+/* Mobile responsive */
+@media (max-width: 768px) {
+    .database-selector-button {
+        padding: 6px 12px;
+        font-size: 13px;
+    }
+
+    .database-name {
+        max-width: 80px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .database-dropdown {
+        min-width: 150px;
+    }
+}

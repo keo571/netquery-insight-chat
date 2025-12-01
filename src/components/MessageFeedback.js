@@ -36,7 +36,7 @@ const MessageFeedback = ({ message }) => {
     setShowModal(true);
   };
 
-  const handleModalSubmit = async (description) => {
+  const handleModalSubmit = async (description, tags = []) => {
     setIsSubmitting(true);
     try {
       await submitFeedback({
@@ -45,6 +45,7 @@ const MessageFeedback = ({ message }) => {
         user_question: message.user_question,
         sql_query: message.sql_query,
         description: description || '',
+        tags: tags,
         timestamp: new Date().toISOString()
       });
       setFeedbackGiven('down');

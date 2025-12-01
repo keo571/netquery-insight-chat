@@ -13,15 +13,16 @@ This document captures the key architectural decisions made in the Netquery Insi
 The Netquery backend is a specialized FastAPI server that generates SQL from natural language queries. We needed a web interface that could work with this backend while adding features like session management, conversation context, and progressive data display.
 
 **Decision:**
-Implement a three-tier architecture:
+Implement a three-tier architecture with dual backend support:
 ```
 React Frontend (Port 3000)
     ↓
-Backend Adapter (Port 8001) - FastAPI
+Backend Adapter (Port 8002) - FastAPI (BFF Layer)
     ↓
-Netquery API (Port 8000) - FastAPI
-    ↓
-PostgreSQL (Port 5432)
+    ├─→ Netquery Sample API (Port 8000) - FastAPI
+    └─→ Netquery Neila API (Port 8001) - FastAPI
+        ↓
+    PostgreSQL / SQLite
 ```
 
 **Rationale:**
@@ -223,7 +224,7 @@ Split development scripts by repository responsibility:
   - `start-dev.sh` / `start-prod.sh` - Environment setup (SQLite/PostgreSQL)
   - `api-server.sh` - Starts Netquery API on port 8000
 - **Frontend repo (this repo):** Manages only UI and adapter layer
-  - `dev-start.sh` - Checks backend health, starts adapter (8001) + React (3000)
+  - `dev-start.sh` - Checks backend health, starts adapter (8002) + React (3000)
   - `dev-stop.sh` - Stops only frontend services
   - `dev-status.sh` - Shows status of all services with guidance
 
@@ -326,7 +327,7 @@ Use layered configuration:
 
 **Rationale:**
 - **Flexibility:** Easy to override for different environments
-- **Sensible Defaults:** Works out-of-box for localhost:3000/8000/8001
+- **Sensible Defaults:** Works out-of-box for localhost:3000/8000/8001/8002
 - **No Secrets:** `.env` is gitignored; template shows structure only
 - **12-Factor App:** Follows best practices for configuration management
 
@@ -338,9 +339,11 @@ Use layered configuration:
 **Example:**
 ```bash
 # .env file
-REACT_APP_API_URL=http://localhost:8001
+REACT_APP_API_URL=http://localhost:8002
 REACT_APP_NETQUERY_API_URL=http://localhost:8000
-ADAPTER_PORT=8001
+NETQUERY_SAMPLE_URL=http://localhost:8000
+NETQUERY_NEILA_URL=http://localhost:8001
+ADAPTER_PORT=8002
 ```
 
 ---
@@ -1062,7 +1065,7 @@ When feedback volume increases, consider:
 **Testing:**
 ```bash
 # Submit test feedback
-curl -X POST http://localhost:8001/api/feedback \
+curl -X POST http://localhost:8002/api/feedback \
   -H "Content-Type: application/json" \
   -d '{
     "type": "thumbs_down",
@@ -1143,7 +1146,7 @@ Rename `netquery_server.py` → `chat_adapter.py` and add comprehensive document
 └──────────┬──────────┘
            │ HTTP
 ┌──────────▼──────────┐
-│  Chat Adapter (BFF) │  Port 8001 (This repo)
+│  Chat Adapter (BFF) │  Port 8002 (This repo)
 │  chat_adapter.py    │
 │                     │
 │  Responsibilities:  │

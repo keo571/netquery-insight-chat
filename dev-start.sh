@@ -14,7 +14,7 @@ RED='\033[0;31m'
 NC='\033[0m' # No Color
 
 # Configuration
-ADAPTER_PORT="${ADAPTER_PORT:-8001}"
+ADAPTER_PORT="${ADAPTER_PORT:-8002}"
 FRONTEND_PORT="${FRONTEND_PORT:-3000}"
 NETQUERY_PORT="${NETQUERY_PORT:-8000}"
 NETQUERY_API_URL="${NETQUERY_API_URL:-http://localhost:$NETQUERY_PORT}"
@@ -45,7 +45,7 @@ echo ""
 echo -e "${BLUE}[2/4] Starting Backend Adapter...${NC}"
 
 # Truncate old logs to prevent indefinite growth
-> /tmp/netquery-adapter.log
+> /tmp/chat-adapter.log
 > /tmp/react-frontend.log
 
 # Check adapter virtual environment
@@ -67,10 +67,10 @@ if lsof -Pi :$ADAPTER_PORT -sTCP:LISTEN -t >/dev/null 2>&1 ; then
     sleep 2
 fi
 
-NETQUERY_API_URL="$NETQUERY_API_URL" ADAPTER_PORT=$ADAPTER_PORT python chat_adapter.py > /tmp/netquery-adapter.log 2>&1 &
+NETQUERY_API_URL="$NETQUERY_API_URL" ADAPTER_PORT=$ADAPTER_PORT python chat_adapter.py > /tmp/chat-adapter.log 2>&1 &
 ADAPTER_PID=$!
 echo -e "${GREEN}✓ Backend Adapter started (PID: $ADAPTER_PID, Port: $ADAPTER_PORT)${NC}"
-echo -e "${YELLOW}  Log: tail -f /tmp/netquery-adapter.log${NC}"
+echo -e "${YELLOW}  Log: tail -f /tmp/chat-adapter.log${NC}"
 
 # Wait for adapter to be ready
 echo -e "${YELLOW}  Waiting for adapter to be ready...${NC}"
@@ -80,7 +80,7 @@ for i in {1..15}; do
         break
     fi
     if [ $i -eq 15 ]; then
-        echo -e "${RED}✗ Adapter failed to start. Check logs: tail -f /tmp/netquery-adapter.log${NC}"
+        echo -e "${RED}✗ Adapter failed to start. Check logs: tail -f /tmp/chat-adapter.log${NC}"
         kill $ADAPTER_PID 2>/dev/null || true
         exit 1
     fi
@@ -132,7 +132,7 @@ echo "  • Adapter:  $ADAPTER_PID"
 echo "  • Frontend: $FRONTEND_PID"
 echo ""
 echo -e "${BLUE}Logs:${NC}"
-echo "  • tail -f /tmp/netquery-adapter.log"
+echo "  • tail -f /tmp/chat-adapter.log"
 echo "  • tail -f /tmp/react-frontend.log"
 echo ""
 echo -e "${YELLOW}To stop frontend services:${NC}"

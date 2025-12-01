@@ -1,0 +1,219 @@
+/* Acknowledgement Modal Overlay */
+.acknowledgement-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.75);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10000;
+    padding: 20px;
+    backdrop-filter: blur(4px);
+}
+
+.acknowledgement-modal {
+    background: var(--citi-white);
+    border-radius: 12px;
+    max-width: 700px;
+    width: 100%;
+    max-height: 90vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    animation: slideUp 0.3s ease-out;
+}
+
+@keyframes slideUp {
+    from {
+        opacity: 0;
+        transform: translateY(30px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Header */
+.acknowledgement-header {
+    background: linear-gradient(135deg, var(--citi-blue) 0%, var(--citi-light-blue) 100%);
+    color: var(--citi-white);
+    padding: 24px 32px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.acknowledgement-header h2 {
+    margin: 0;
+    font-size: 24px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+}
+
+/* Content */
+.acknowledgement-content {
+    padding: 32px;
+    overflow-y: auto;
+    flex: 1;
+}
+
+.acknowledgement-section {
+    margin-bottom: 28px;
+}
+
+.acknowledgement-section:last-child {
+    margin-bottom: 0;
+}
+
+.acknowledgement-section h3 {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--citi-blue);
+    margin: 0 0 12px 0;
+    letter-spacing: -0.01em;
+}
+
+.acknowledgement-description {
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.6;
+    color: var(--citi-text);
+}
+
+.acknowledgement-section ul {
+    margin: 0;
+    padding-left: 24px;
+    list-style: none;
+}
+
+.acknowledgement-section ul li {
+    position: relative;
+    margin-bottom: 10px;
+    font-size: 14px;
+    line-height: 1.6;
+    color: var(--citi-text);
+}
+
+.acknowledgement-section ul li:last-child {
+    margin-bottom: 0;
+}
+
+.acknowledgement-section ul li::before {
+    content: "•";
+    position: absolute;
+    left: -16px;
+    color: var(--citi-blue);
+    font-weight: bold;
+}
+
+.acknowledgement-section ul li strong {
+    color: var(--citi-dark-gray);
+    font-weight: 600;
+}
+
+/* Note Section */
+.acknowledgement-note {
+    background: var(--citi-gray-bg);
+    border-left: 4px solid var(--citi-blue);
+    padding: 16px 20px;
+    border-radius: 4px;
+}
+
+.acknowledgement-note p {
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.6;
+    color: var(--citi-text);
+}
+
+/* Footer */
+.acknowledgement-footer {
+    padding: 20px 32px;
+    background: var(--citi-gray-bg);
+    border-top: 1px solid var(--citi-border);
+    display: flex;
+    justify-content: center;
+}
+
+.acknowledgement-btn {
+    background: linear-gradient(135deg, var(--citi-blue) 0%, var(--citi-light-blue) 100%);
+    color: var(--citi-white);
+    border: none;
+    padding: 14px 32px;
+    border-radius: 8px;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    box-shadow: 0 4px 12px rgba(0, 112, 192, 0.2);
+}
+
+.acknowledgement-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px rgba(0, 112, 192, 0.3);
+}
+
+.acknowledgement-btn:active {
+    transform: translateY(0);
+    box-shadow: 0 2px 8px rgba(0, 112, 192, 0.2);
+}
+
+/* Scrollbar Styling */
+.acknowledgement-content::-webkit-scrollbar {
+    width: 8px;
+}
+
+.acknowledgement-content::-webkit-scrollbar-track {
+    background: var(--citi-gray-bg);
+    border-radius: 4px;
+}
+
+.acknowledgement-content::-webkit-scrollbar-thumb {
+    background: var(--citi-border);
+    border-radius: 4px;
+}
+
+.acknowledgement-content::-webkit-scrollbar-thumb:hover {
+    background: var(--citi-text-light);
+}
+
+/* Mobile Responsive */
+@media (max-width: 768px) {
+    .acknowledgement-modal {
+        max-height: 95vh;
+        margin: 10px;
+    }
+
+    .acknowledgement-header {
+        padding: 20px 24px;
+    }
+
+    .acknowledgement-header h2 {
+        font-size: 20px;
+    }
+
+    .acknowledgement-content {
+        padding: 24px;
+    }
+
+    .acknowledgement-section h3 {
+        font-size: 15px;
+    }
+
+    .acknowledgement-section ul li {
+        font-size: 13px;
+    }
+
+    .acknowledgement-footer {
+        padding: 16px 24px;
+    }
+
+    .acknowledgement-btn {
+        padding: 12px 24px;
+        font-size: 14px;
+        width: 100%;
+    }
+}

@@ -2,11 +2,29 @@ import React, { useState } from 'react';
 import PropTypes from 'prop-types';
 import './FeedbackModal.css';
 
+
 const FeedbackModal = ({ onSubmit, onClose, isSubmitting }) => {
   const [description, setDescription] = useState('');
+  const [selectedTags, setSelectedTags] = useState([]);
+
+  const FEEDBACK_TAGS = [
+    'Inaccurate Data',
+    'Slow Response',
+    'Bad Formatting',
+    'SQL Error',
+    'Other'
+  ];
+
+  const handleTagClick = (tag) => {
+    if (selectedTags.includes(tag)) {
+      setSelectedTags(selectedTags.filter(t => t !== tag));
+    } else {
+      setSelectedTags([...selectedTags, tag]);
+    }
+  };
 
   const handleSubmit = () => {
-    onSubmit(description);
+    onSubmit(description, selectedTags);
   };
 
   const handleKeyDown = (e) => {
@@ -45,8 +63,21 @@ const FeedbackModal = ({ onSubmit, onClose, isSubmitting }) => {
         </div>
 
         <div className="feedback-modal-body">
+          <div className="feedback-tags">
+            {FEEDBACK_TAGS.map(tag => (
+              <button
+                key={tag}
+                className={`feedback-tag ${selectedTags.includes(tag) ? 'selected' : ''}`}
+                onClick={() => handleTagClick(tag)}
+                disabled={isSubmitting}
+              >
+                {tag}
+              </button>
+            ))}
+          </div>
+
           <label htmlFor="feedback-description">
-            What went wrong? <span className="optional">(optional)</span>
+            Additional details <span className="optional">(optional)</span>
           </label>
           <textarea
             id="feedback-description"
@@ -55,7 +86,7 @@ const FeedbackModal = ({ onSubmit, onClose, isSubmitting }) => {
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             disabled={isSubmitting}
-            rows={6}
+            rows={4}
             autoFocus
           />
         </div>

@@ -11,11 +11,13 @@ ARCHITECTURE:
 -------------
   Frontend (React, port 3000)
          ↓ HTTP requests
-  Chat Adapter (this file, port 8001)  ← BFF Layer
+  Chat Adapter (this file, port 8002)  ← BFF Layer
          ↓ HTTP requests
-  Netquery Backend (~/Code/netquery/server.py, port 8000)  ← Core Service
+  Netquery Backends (~/Code/netquery/server.py)  ← Core Services
+    - Sample DB: port 8000
+    - Neila DB: port 8001
          ↓ SQL queries
-  PostgreSQL / SQLite Database
+  PostgreSQL / SQLite Databases
 
 RESPONSIBILITIES OF THIS ADAPTER (BFF):
 ---------------------------------------
@@ -86,7 +88,7 @@ logger = logging.getLogger(__name__)
 
 # Constants
 SESSION_TIMEOUT = timedelta(hours=1)
-MAX_CONVERSATION_HISTORY = 5
+MAX_CONVERSATION_HISTORY = 1
 RECENT_EXCHANGES_FOR_CONTEXT = 3
 DEFAULT_FRONTEND_INITIAL_ROWS = 30
 DEFAULT_TIMEOUT = 30.0
@@ -111,6 +113,7 @@ class ChatRequest(BaseModel):
     message: str
     session_id: Optional[str] = None
     include_interpretation: bool = False
+    database: str = "sample"  # Default to 'sample' database
 
 class SchemaOverviewResponse(BaseModel):
     schema_id: Optional[str] = None
@@ -123,6 +126,7 @@ class FeedbackRequest(BaseModel):
     user_question: Optional[str] = None
     sql_query: Optional[str] = None
     description: Optional[str] = None
+    tags: List[str] = Field(default_factory=list)
     timestamp: str
 
 
@@ -171,12 +175,17 @@ def add_to_conversation(session_id: str, user_message: str, sql: str):
 
 
 def build_context_prompt(session: Dict[str, Any], current_message: str) -> str:
-    """Build a contextualized prompt with conversation history."""
+    """
+    Build a contextualized prompt with conversation history.
+
+    The backend's LLM (classify_intent in query_rewriter.py) will decide whether
+    to use the conversation context for rewriting follow-up questions.
+    """
     history = session.get('conversation_history', [])
     if not history:
         return current_message
 
-    # Build context from previous exchanges
+    # Always include conversation history - let backend LLM decide if it's needed
     context_parts = ["CONVERSATION HISTORY - Use this to understand follow-up questions:\n"]
 
     recent_history = history[-RECENT_EXCHANGES_FOR_CONTEXT:]
@@ -229,22 +238,43 @@ def build_display_info(data: List, total_count: Optional[int]) -> Dict[str, Any]
 
 
 def build_analysis_explanation(interpretation_data: dict, total_count: Optional[int]) -> str:
-    """Build analysis explanation from interpretation data."""
+    """
+    Build markdown-formatted analysis from structured interpretation data.
+
+    Expects interpretation_data to have this structure:
+    {
+        "interpretation": {
+            "summary": "...",
+            "key_findings": ["...", "..."],
+            "recommendations": ["...", "..."]
+        }
+    }
+    """
     parts = []
     interp = interpretation_data.get("interpretation", {})
 
+    # Extract and format summary
     summary = interp.get("summary", "")
     if summary:
         parts.append(f"**Summary:**\n\n{summary}\n\n")
 
+    # Extract and format key findings
     findings = interp.get("key_findings", [])
     if findings:
         parts.append("**Key Findings:**\n\n")
-        for i, finding in enumerate(findings, 1):
-            parts.append(f"{i}. {finding}\n")
+        for finding in findings:
+            parts.append(f"- {finding}\n")
         parts.append("\n")
 
-    # Show analysis limitations only when dataset > 30 rows
+    # Extract and format recommendations
+    recommendations = interp.get("recommendations", [])
+    if recommendations:
+        parts.append("**Recommendations:**\n\n")
+        for recommendation in recommendations:
+            parts.append(f"- {recommendation}\n")
+        parts.append("\n")
+
+    # Add data limitations note when dataset is large
     if total_count and total_count > 30:
         parts.append(f"**Analysis Note:**\n\nInsights based on first 30 rows of {total_count} rows. Download full dataset for complete analysis.\n\n")
     elif total_count is None:
@@ -275,16 +305,33 @@ def extract_interpretation_fields(interpretation_data: dict) -> Tuple[Optional[d
 
 
 def build_interpretation_payload(interpretation_data: dict, total_count: Optional[int]) -> dict:
-    """Build complete interpretation payload from backend response."""
+    """
+    Build complete interpretation payload from backend response.
+
+    Args:
+        interpretation_data: Structured dict from backend with interpretation, visualization, etc.
+        total_count: Total number of rows in dataset for adding data limitation notes
+
+    Returns:
+        Dict with markdown-formatted analysis and other interpretation fields
+    """
+    # Build markdown-formatted analysis from structured interpretation data
     analysis_explanation = build_analysis_explanation(interpretation_data, total_count)
+
+    # Extract visualization and other metadata fields
     visualization, schema_overview, suggested_queries, _ = extract_interpretation_fields(interpretation_data)
 
-    return {
+    payload = {
         'analysis': analysis_explanation,
         'visualization': visualization,
         'schema_overview': schema_overview,
         'suggested_queries': suggested_queries
     }
+
+    # Debug logging to see what visualization is being sent
+    logger.info(f"Built interpretation payload with visualization: {visualization}")
+
+    return payload
 
 
 def yield_sse_event(event_type: str, data: dict) -> str:
@@ -298,37 +345,82 @@ class NetqueryFastAPIClient:
     """Client to communicate with Netquery FastAPI server."""
 
     def __init__(self, base_url: Optional[str] = None):
+        # Database-to-port mapping for dual backend setup
+        self.database_urls = {
+            "sample": os.getenv("NETQUERY_SAMPLE_URL", "http://localhost:8000"),
+            "neila": os.getenv("NETQUERY_NEILA_URL", "http://localhost:8001"),
+        }
+        # Fallback to single backend URL if provided
         self.base_url = base_url or os.getenv("NETQUERY_API_URL", "http://localhost:8000")
 
-    async def generate_sql(self, client: httpx.AsyncClient, message: str) -> Tuple[str, str]:
-        """Generate SQL from natural language query."""
-        logger.info(f"Generating SQL for: {message[:80]}...")
+    def get_backend_url(self, database: str = "sample") -> str:
+        """Get the appropriate backend URL for the given database."""
+        return self.database_urls.get(database, self.base_url)
+
+    async def generate_sql(self, client: httpx.AsyncClient, message: str, database: str = "sample") -> Tuple[str, Optional[str], str, Optional[str]]:
+        """
+        Generate SQL from natural language query.
+
+        Args:
+            client: HTTP client
+            message: Natural language query
+            database: Database name (e.g., 'sample', 'neila')
+
+        Returns:
+            Tuple of (query_id, sql, intent, general_answer)
+            - sql may be None for general questions
+            - intent is "sql", "general", or "mixed"
+            - general_answer is provided for general/mixed questions
+        """
+        backend_url = self.get_backend_url(database)
+        # Log first line only (actual user query) to avoid verbose context rules
+        first_line = message.split('\n')[0] if message else message
+        logger.info(f"Generating SQL for database '{database}' at {backend_url}: {first_line}")
         response = await client.post(
-            f"{self.base_url}/api/generate-sql",
+            f"{backend_url}/api/generate-sql",
             json={"query": message}
         )
         response.raise_for_status()
         data = response.json()
-        return data["query_id"], data["sql"]
+        return (
+            data["query_id"],
+            data.get("sql"),  # May be None for general questions
+            data.get("intent", "sql"),  # Default to "sql" for backward compat
+            data.get("general_answer")  # May be None for pure SQL
+        )
 
-    async def execute_query(self, client: httpx.AsyncClient, query_id: str) -> dict:
+    async def execute_query(self, client: httpx.AsyncClient, query_id: str, database: str = "sample") -> dict:
         """Execute SQL query and get results."""
-        logger.info(f"Executing SQL for query_id: {query_id}")
-        response = await client.get(f"{self.base_url}/api/execute/{query_id}")
+        backend_url = self.get_backend_url(database)
+        logger.info(f"Executing SQL for query_id: {query_id} on database '{database}'")
+        response = await client.get(f"{backend_url}/api/execute/{query_id}")
         response.raise_for_status()
         return response.json()
 
-    async def interpret_results(self, client: httpx.AsyncClient, query_id: str) -> dict:
+    async def interpret_results(self, client: httpx.AsyncClient, query_id: str, database: str = "sample") -> dict:
         """Get interpretation for query results."""
-        logger.info(f"Getting interpretation for query_id: {query_id}")
-        response = await client.post(f"{self.base_url}/api/interpret/{query_id}")
+        backend_url = self.get_backend_url(database)
+        logger.info(f"Getting interpretation for query_id: {query_id} on database '{database}'")
+        response = await client.post(f"{backend_url}/api/interpret/{query_id}")
         response.raise_for_status()
-        return response.json()
+        data = response.json()
+        logger.info(f"Interpretation response type: {type(data)}, value: {str(data)[:200]}")
+        return data
 
-    async def schema_overview(self) -> Dict[str, Any]:
-        """Fetch schema overview from Netquery API."""
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.get(f"{self.base_url}/api/schema/overview")
+    async def schema_overview(self, database: str = "sample") -> Dict[str, Any]:
+        """
+        Get schema overview from Netquery backend.
+
+        Args:
+            database: Database name (e.g., 'sample', 'neila')
+        """
+        backend_url = self.get_backend_url(database)
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
+            response = await client.get(
+                f"{backend_url}/api/schema/overview",
+                params={"database": database},
+                timeout=DEFAULT_TIMEOUT
+            )
             response.raise_for_status()
             return response.json()
 
@@ -375,12 +467,12 @@ async def chat_endpoint(request: ChatRequest):
                 if session and session.get('conversation_history'):
                     contextualized_message = build_context_prompt(session, request.message)
 
-                # Step 1: Generate SQL
+                # Step 1: Generate SQL (or get general answer)
                 try:
-                    query_id, sql = await netquery_client.generate_sql(client, contextualized_message)
+                    query_id, sql, intent, general_answer = await netquery_client.generate_sql(client, contextualized_message, request.database)
                 except httpx.HTTPStatusError as exc:
                     if exc.response.status_code == 422:
-                        # Handle both triage rejection and SQL generation errors
+                        # Handle SQL generation errors
                         detail = exc.response.json().get("detail", {})
                         error_type = detail.get("type", "generation_error")
 
@@ -391,23 +483,46 @@ async def chat_endpoint(request: ChatRequest):
                             "suggested_queries": detail.get("suggested_queries", [])
                         }
 
-                        # For triage rejections, the message already contains helpful suggestions
-                        # For generation errors, we include schema_overview for context
                         yield yield_sse_event('guidance', guidance_payload)
                         yield yield_sse_event('done', {})
                         return
                     raise
 
-                # Send SQL immediately
+                # Handle based on intent type
+                if intent == "general":
+                    # Pure general question - no SQL needed
+                    logger.info(f"General question detected: {request.message[:80]}...")
+
+                    yield yield_sse_event('general_answer', {
+                        'answer': general_answer,
+                        'query_id': query_id
+                    })
+
+                    # Add to conversation history (without SQL)
+                    add_to_conversation(session_id, request.message, None)
+
+                    yield yield_sse_event('done', {})
+                    return
+
+                # For SQL and mixed intents, we need to execute SQL
+                # First, send general answer if this is a mixed query
+                if intent == "mixed" and general_answer:
+                    yield yield_sse_event('general_answer', {
+                        'answer': general_answer,
+                        'query_id': query_id
+                    })
+
+                # Send SQL
                 sql_explanation = f"**SQL Query:**\n```sql\n{sql}\n```\n\n"
                 yield yield_sse_event('sql', {
                     'sql': sql,
                     'query_id': query_id,
-                    'explanation': sql_explanation
+                    'explanation': sql_explanation,
+                    'intent': intent
                 })
 
                 # Step 2: Execute and get data
-                execute_data = await netquery_client.execute_query(client, query_id)
+                execute_data = await netquery_client.execute_query(client, query_id, request.database)
                 data = execute_data.get("data", [])
                 total_count = execute_data.get("total_count")
 
@@ -420,7 +535,7 @@ async def chat_endpoint(request: ChatRequest):
 
                 # Step 3: Get interpretation (only if requested)
                 if request.include_interpretation:
-                    interpretation_data = await netquery_client.interpret_results(client, query_id)
+                    interpretation_data = await netquery_client.interpret_results(client, query_id, request.database)
                     interpretation_payload = build_interpretation_payload(interpretation_data, total_count)
 
                     try:
@@ -483,7 +598,7 @@ async def health_check():
 
 
 @app.get("/schema/overview", response_model=SchemaOverviewResponse)
-async def schema_overview_endpoint():
+async def schema_overview_endpoint(database: str = "sample"):
     """
     Schema overview endpoint - Proxies schema metadata from Netquery backend.
 
@@ -495,16 +610,19 @@ async def schema_overview_endpoint():
     - GET /api/schema/overview (schema metadata)
 
     Used by: Frontend welcome screen to show available tables
+    
+    Args:
+        database: Database name (e.g., 'sample', 'neila')
     """
     try:
-        overview = await netquery_client.schema_overview()
+        overview = await netquery_client.schema_overview(database=database)
         return SchemaOverviewResponse(**overview)
     except Exception as exc:
         raise HTTPException(status_code=503, detail=str(exc))
 
 
 @app.get("/api/interpret/{query_id}")
-async def get_interpretation_endpoint(query_id: str):
+async def get_interpretation_endpoint(query_id: str, database: str = "sample"):
     """
     On-demand interpretation endpoint - Lazy-loads analysis and visualization.
 
@@ -518,17 +636,21 @@ async def get_interpretation_endpoint(query_id: str):
     - POST /api/interpret/{query_id} (generate analysis)
 
     Used by: "Show Analysis" button in chat UI (progressive disclosure)
+
+    Args:
+        query_id: The query identifier
+        database: Database name (e.g., 'sample', 'neila')
     """
     try:
         async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
-            logger.info(f"Fetching interpretation for query_id: {query_id}")
+            logger.info(f"Fetching interpretation for query_id: {query_id} on database '{database}'")
 
             # Get the cached data to determine total_count
-            execute_data = await netquery_client.execute_query(client, query_id)
+            execute_data = await netquery_client.execute_query(client, query_id, database)
             total_count = execute_data.get("total_count")
 
             # Get interpretation from backend
-            interpretation_data = await netquery_client.interpret_results(client, query_id)
+            interpretation_data = await netquery_client.interpret_results(client, query_id, database)
 
             # Build and return interpretation payload
             return build_interpretation_payload(interpretation_data, total_count)
@@ -537,7 +659,8 @@ async def get_interpretation_endpoint(query_id: str):
         logger.error(f"Interpretation failed for query_id {query_id}: {e}")
         raise HTTPException(status_code=e.response.status_code, detail=f"Interpretation failed: {str(e)}")
     except Exception as e:
-        logger.error(f"Interpretation error for query_id {query_id}: {e}")
+        import traceback
+        logger.error(f"Interpretation error for query_id {query_id}: {e}\n{traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Interpretation error: {str(e)}")
 
 
@@ -608,6 +731,7 @@ async def submit_feedback_endpoint(request: FeedbackRequest):
             "user_question": request.user_question,
             "sql_query": request.sql_query,
             "description": request.description,
+            "tags": request.tags,
             "timestamp": request.timestamp
         }
 
@@ -626,7 +750,7 @@ async def submit_feedback_endpoint(request: FeedbackRequest):
 
 if __name__ == "__main__":
     netquery_url = os.getenv("NETQUERY_API_URL", "http://localhost:8000")
-    adapter_port = int(os.getenv("ADAPTER_PORT", "8001"))
+    adapter_port = int(os.getenv("ADAPTER_PORT", "8002"))
 
     print("=" * 60)
     print("Netquery Chat Adapter (BFF Layer)")
@@ -636,9 +760,9 @@ if __name__ == "__main__":
     print(f"Frontend UI:        http://localhost:3000 (when started)")
     print()
     print("This adapter orchestrates chat-specific features:")
-    print("  • Session & conversation management")
-    print("  • Streaming responses (SSE)")
-    print("  • User feedback collection")
+    print("  - Session & conversation management")
+    print("  - Streaming responses (SSE)")
+    print("  - User feedback collection")
     print("=" * 60)
     print()
 

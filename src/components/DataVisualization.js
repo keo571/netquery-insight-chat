@@ -224,14 +224,57 @@ const DataVisualization = ({ visualization, data }) => {
         );
 
       case 'line':
+        // Check if x_column values are all the same (need to use index instead)
+        const xValues = processedData.map(row => row[x_column]);
+        const allSameXValue = xValues.every(val => val === xValues[0]);
+
+        // If all x values are the same, create indexed data with proper labels
+        const lineChartData = allSameXValue ? processedData.map((row, index) => ({
+          ...row,
+          _displayIndex: index + 1,
+          _originalX: row[x_column]
+        })) : processedData;
+
+        const lineXColumn = allSameXValue ? '_displayIndex' : x_column;
+
+        // Custom tooltip for line chart
+        const renderLineTooltip = (props) => {
+          if (props.active && props.payload && props.payload.length) {
+            const payload = props.payload[0];
+            const dataPoint = payload.payload;
+
+            // Use original x value if it exists, otherwise use the display value
+            const xValue = dataPoint._originalX || props.label;
+            const yValue = payload.value;
+
+            return (
+              <div className="custom-tooltip">
+                <p className="tooltip-label">{`${x_column}: ${xValue}`}</p>
+                <p className="tooltip-label">{`${y_column}: ${yValue}`}</p>
+              </div>
+            );
+          }
+          return null;
+        };
+
         return (
-          <LineChart data={processedData}>
+          <LineChart data={lineChartData}>
             <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey={x_column} />
+            <XAxis
+              dataKey={lineXColumn}
+              label={allSameXValue ? { value: `Index (Date: ${xValues[0]})`, position: 'insideBottom', offset: -5 } : undefined}
+            />
             <YAxis />
-            <Tooltip />
+            <Tooltip content={renderLineTooltip} cursor={false} />
             <Legend />
-            <Line type="monotone" dataKey={y_column} stroke="#8884d8" strokeWidth={2} />
+            <Line
+              type="monotone"
+              dataKey={y_column}
+              stroke="#0088FE"
+              strokeWidth={2}
+              dot={{ fill: '#0088FE', stroke: '#fff', strokeWidth: 2, r: 5 }}
+              activeDot={false}
+            />
           </LineChart>
         );
 
@@ -331,14 +374,16 @@ const DataVisualization = ({ visualization, data }) => {
   }
 
   return (
-    <div className="chart-container">
-      <h4 className="chart-title">{title}</h4>
-      <ResponsiveContainer width="100%" height={400}>
-        {chartContent}
-      </ResponsiveContainer>
-      {config.reason && (
-        <p className="chart-reason">💡 {config.reason}</p>
-      )}
+    <div className="visualization fade-in">
+      <div className="chart-container">
+        <h4 className="chart-title">{title}</h4>
+        <ResponsiveContainer width="100%" height={400}>
+          {chartContent}
+        </ResponsiveContainer>
+        {config.reason && (
+          <p className="chart-reason">💡 {config.reason}</p>
+        )}
+      </div>
     </div>
   );
 };

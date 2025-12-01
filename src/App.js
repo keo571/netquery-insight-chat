@@ -6,7 +6,10 @@ import {
   StreamingMessage,
   ChatInput,
   ImageModal,
-  WelcomeMessage
+  Sidebar,
+  SchemaModal,
+  AcknowledgementModal,
+  Toast
 } from './components';
 
 // Hooks
@@ -15,45 +18,44 @@ import { fetchSchemaOverview } from './services/api';
 
 // Utils
 import { AGENT_CONFIG } from './utils/constants';
-import { getUserFriendlyError } from './utils/errorMessages';
 
 function App() {
   const [currentQuery, setCurrentQuery] = useState('');
   const [selectedImage, setSelectedImage] = useState(null);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isSchemaModalOpen, setIsSchemaModalOpen] = useState(false);
+  const [toastVisible, setToastVisible] = useState(false);
+  const [toastMessage, setToastMessage] = useState('');
+
+  // Database selection state
+  // TODO: Fetch available databases from backend instead of hardcoding
+  const availableDatabases = ['sample', 'neila'];
+  const [selectedDatabase, setSelectedDatabase] = useState(
+    sessionStorage.getItem('selectedDatabase') || 'sample'
+  );
 
   // Custom hooks
-  const { messages, loading, sendMessage, updateMessageAnalysis } = useChat();
+  const { messages, loading, sendMessage, updateMessageAnalysis } = useChat(selectedDatabase);
   const [schemaOverview, setSchemaOverview] = useState(null);
-  const [schemaLoading, setSchemaLoading] = useState(true);
-  const [schemaError, setSchemaError] = useState(null);
 
+  // Fetch schema overview on mount and when database changes
   useEffect(() => {
-    let isMounted = true;
-
-    const loadOverview = async () => {
+    const loadSchema = async () => {
       try {
-        const data = await fetchSchemaOverview();
-        if (isMounted) {
-          setSchemaOverview(data);
-          setSchemaError(null);
-        }
-      } catch (err) {
-        if (isMounted) {
-          const friendlyError = err.message || getUserFriendlyError(err, 'schema');
-          setSchemaError(friendlyError);
-        }
-      } finally {
-        if (isMounted) {
-          setSchemaLoading(false);
-        }
+        const data = await fetchSchemaOverview(selectedDatabase);
+        setSchemaOverview(data);
+      } catch (error) {
+        console.error('Failed to load schema:', error);
       }
     };
+    loadSchema();
+  }, [selectedDatabase]);
 
-    loadOverview();
-    return () => {
-      isMounted = false;
-    };
-  }, []);
+  // Handle database change
+  const handleDatabaseChange = (database) => {
+    setSelectedDatabase(database);
+    sessionStorage.setItem('selectedDatabase', database);
+  };
   const messagesEndRef = useScrollToBottom(messages);
 
   const handleSubmit = async (e) => {
@@ -64,37 +66,78 @@ function App() {
     setCurrentQuery('');
   };
 
+  const toggleSidebar = () => {
+    setIsSidebarOpen(!isSidebarOpen);
+  };
+
+  const showToast = (message) => {
+    setToastMessage(message);
+    setToastVisible(true);
+  };
+
+  const handleQuerySelect = (query) => {
+    if (query === 'VIEW_SCHEMA_DIAGRAM') {
+      setIsSchemaModalOpen(true);
+      if (window.innerWidth <= 768) setIsSidebarOpen(false);
+    } else {
+      setCurrentQuery(query);
+      showToast('Question copied to input box!');
+      // Close sidebar on mobile
+      if (window.innerWidth <= 768) {
+        setIsSidebarOpen(false);
+      }
+    }
+  };
+
+  const handleSidebarAction = (action) => {
+    if (action.type === 'SELECT_QUERY') {
+      handleQuerySelect(action.query);
+    } else if (action.type === 'VIEW_SCHEMA_DIAGRAM') {
+      setIsSchemaModalOpen(true);
+      if (window.innerWidth <= 768) setIsSidebarOpen(false);
+    }
+  };
 
   return (
     <div className="App">
-      <div className="chat-container">
+      <Sidebar
+        isOpen={isSidebarOpen}
+        onClose={toggleSidebar}
+        schema={schemaOverview}
+        onAction={handleSidebarAction}
+        selectedDatabase={selectedDatabase}
+        databases={availableDatabases}
+        onDatabaseChange={handleDatabaseChange}
+      />
+
+      <SchemaModal
+        isOpen={isSchemaModalOpen}
+        onClose={() => setIsSchemaModalOpen(false)}
+        schema={schemaOverview}
+      />
+
+      <div className={`chat-container ${isSidebarOpen ? 'sidebar-open' : ''}`}>
         <div className="chat-header">
+          {!isSidebarOpen && (
+            <button className="menu-btn" onClick={toggleSidebar}>
+              ☰
+            </button>
+          )}
           <h1>{AGENT_CONFIG.name} Chat</h1>
         </div>
 
 
         <div className="chat-messages">
-          {messages.length === 0 ? (
-            <WelcomeMessage 
-              title={AGENT_CONFIG.welcomeTitle}
-              message={AGENT_CONFIG.welcomeMessage}
-              tables={schemaOverview?.tables}
-              suggestedQueries={schemaOverview?.suggested_queries}
-              loading={schemaLoading}
-              error={schemaError}
+          {messages.map((message) => (
+            <StreamingMessage
+              key={message.id}
+              message={message}
+              isUser={message.isUser}
+              agentName={AGENT_CONFIG.name}
+              onImageClick={setSelectedImage}
+              onUpdateAnalysis={updateMessageAnalysis}
             />
-          ) : (
-            messages.map((message) => (
-              <StreamingMessage
-                key={message.id}
-                message={message}
-                isUser={message.isUser}
-                agentName={AGENT_CONFIG.name}
-                onImageClick={setSelectedImage}
-                onUpdateAnalysis={updateMessageAnalysis}
-              />
-            ))
-          )}
+          ))}
 
           <div ref={messagesEndRef} />
         </div>
@@ -105,12 +148,21 @@ function App() {
           loading={loading}
           onSubmit={handleSubmit}
           placeholder={AGENT_CONFIG.inputPlaceholder}
+          autoFocus={toastVisible}
         />
       </div>
 
-      <ImageModal 
-        selectedImage={selectedImage} 
-        onClose={() => setSelectedImage(null)} 
+      <ImageModal
+        selectedImage={selectedImage}
+        onClose={() => setSelectedImage(null)}
+      />
+
+      <AcknowledgementModal onAccept={() => {}} />
+
+      <Toast
+        message={toastMessage}
+        isVisible={toastVisible}
+        onClose={() => setToastVisible(false)}
       />
     </div>
   );

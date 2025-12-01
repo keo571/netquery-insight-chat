@@ -3,7 +3,7 @@ import { queryAgent } from '../services/api';
 import { debugLog } from '../utils/debug';
 import { getUserFriendlyError } from '../utils/errorMessages';
 
-export const useChat = () => {
+export const useChat = (database = 'sample') => {
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(false);
   const sessionIdRef = useRef(null); // Track session ID across requests
@@ -33,6 +33,7 @@ export const useChat = () => {
       visualization: null,
       display_info: null,
       query_id: null,
+      database: database, // Store which database this query was run against
       suggestedQueries: [],
       schemaOverview: null,
       timestamp: new Date().toISOString(),
@@ -140,6 +141,26 @@ export const useChat = () => {
             ));
             break;
 
+          case 'general_answer':
+            // Handle general knowledge answer (no SQL needed)
+            setMessages(prev => prev.map(msg =>
+              msg.id === agentMessageId
+                ? {
+                    ...msg,
+                    content: event.answer,
+                    query_id: event.query_id,
+                    isLoading: false,
+                    loadingStates: {
+                      sql: true,
+                      data: true,
+                      analysis: true,
+                      visualization: true
+                    }
+                  }
+                : msg
+            ));
+            break;
+
           case 'guidance':
             // Handle guidance response (schema help)
             setMessages(prev => prev.map(msg =>
@@ -190,7 +211,7 @@ export const useChat = () => {
           default:
             debugLog('Unknown event type:', event.type);
         }
-      });
+      }, database);
 
     } catch (error) {
       // Remove the placeholder message and show user-friendly error
@@ -208,7 +229,7 @@ export const useChat = () => {
       setMessages(prev => [...prev, errorMessage]);
       setLoading(false);
     }
-  }, [loading]);
+  }, [loading, database]);
 
   const updateMessageAnalysis = useCallback((messageId, analysisData) => {
     setMessages(prev => prev.map(msg =>

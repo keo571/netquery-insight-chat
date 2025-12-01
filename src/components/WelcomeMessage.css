@@ -1,61 +1,71 @@
 /* Welcome message */
 .welcome-message {
   text-align: center;
-  color: #666666;
+  color: var(--citi-text-light);
   margin: auto;
-  max-width: 500px;
-  padding: 40px 32px;
-  background: #ffffff;
-  border-radius: 8px;
-  border: 1px solid #e0e0e0;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  max-width: 600px;
+  padding: 48px 40px;
+  background: var(--surface-color);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--citi-border);
+  box-shadow: var(--shadow-lg);
   position: relative;
 }
 
 .welcome-message h3 {
-  color: #003d82;
-  margin-bottom: 16px;
-  font-size: 24px;
+  color: var(--citi-blue);
+  margin-bottom: 20px;
+  font-size: 28px;
   font-weight: 600;
-  letter-spacing: 0;
-  font-family: 'Segoe UI', sans-serif;
+  letter-spacing: -0.02em;
+  font-family: 'Inter', sans-serif;
 }
 
 .welcome-message p {
   line-height: 1.6;
   font-size: 16px;
+  margin-bottom: 24px;
 }
 
 .welcome-loading {
   margin-top: 16px;
-  color: #1f3a8a;
+  color: var(--citi-blue);
   font-size: 14px;
+  font-weight: 500;
 }
 
 .welcome-error {
   margin-top: 16px;
-  color: #b42318;
+  color: var(--citi-red);
   font-size: 14px;
+  font-weight: 500;
 }
 
 .welcome-section {
-  margin-top: 24px;
+  margin-top: 32px;
   text-align: left;
+  background: var(--citi-gray-bg);
+  padding: 24px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--citi-border);
 }
 
 .welcome-section h4 {
-  margin: 0 0 8px 0;
-  font-size: 16px;
-  color: #003d82;
+  margin: 0 0 12px 0;
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--citi-blue);
+  font-weight: 600;
 }
 
 .welcome-section ul {
   margin: 0;
   padding-left: 20px;
-  color: #333;
+  color: var(--citi-text-dark);
 }
 
 .welcome-section li {
-  margin-bottom: 6px;
-  line-height: 1.4;
+  margin-bottom: 8px;
+  line-height: 1.5;
 }

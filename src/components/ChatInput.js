@@ -1,14 +1,23 @@
-import React from 'react';
+import React, { useRef, useEffect } from 'react';
 import PropTypes from 'prop-types';
 import './ChatInput.css';
 
-const ChatInput = ({ 
-  currentQuery, 
-  setCurrentQuery, 
-  loading, 
-  onSubmit, 
-  placeholder 
+const ChatInput = ({
+  currentQuery,
+  setCurrentQuery,
+  loading,
+  onSubmit,
+  placeholder,
+  autoFocus = false
 }) => {
+  const textareaRef = useRef(null);
+  // Auto-focus when a suggestion is clicked
+  useEffect(() => {
+    if (autoFocus && textareaRef.current) {
+      textareaRef.current.focus();
+    }
+  }, [autoFocus, currentQuery]);
+
   const handleKeyPress = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -37,6 +46,7 @@ const ChatInput = ({
     <form onSubmit={onSubmit} className="chat-input">
       <div className="input-container">
         <textarea
+          ref={textareaRef}
           value={currentQuery}
           onChange={handleTextareaChange}
           onKeyPress={handleKeyPress}
@@ -62,7 +72,8 @@ ChatInput.propTypes = {
   setCurrentQuery: PropTypes.func.isRequired,
   loading: PropTypes.bool.isRequired,
   onSubmit: PropTypes.func.isRequired,
-  placeholder: PropTypes.string.isRequired
+  placeholder: PropTypes.string.isRequired,
+  autoFocus: PropTypes.bool
 };
 
 export default ChatInput;

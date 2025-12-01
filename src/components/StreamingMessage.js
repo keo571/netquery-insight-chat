@@ -8,26 +8,10 @@ import { fetchInterpretation } from '../services/api';
 import { getUserFriendlyError } from '../utils/errorMessages';
 import './Message.css';
 
-// Helper component for visualization
+// Helper component for visualization - just passes through to DataVisualization
+// DataVisualization handles its own container and all validation
 const ConditionalVisualization = ({ visualization, data }) => {
-  if (!visualization || visualization.type === 'none') {
-    return null;
-  }
-
-  const processedData = visualization.data && visualization.data.length > 0 ? visualization.data : data;
-
-  if (!processedData || processedData.length === 0) {
-    return null;
-  }
-
-  return (
-    <div className="visualization fade-in">
-      <DataVisualization
-        visualization={visualization}
-        data={processedData}
-      />
-    </div>
-  );
+  return <DataVisualization visualization={visualization} data={data} />;
 };
 
 ConditionalVisualization.propTypes = {
@@ -136,7 +120,9 @@ const StreamingMessage = React.memo(({
     setLoadingAnalysis(true);
     setAnalysisError(null);
     try {
-      const data = await fetchInterpretation(message.query_id);
+      // Use the database stored with the message, or default to 'sample'
+      const database = message.database || 'sample';
+      const data = await fetchInterpretation(message.query_id, database);
       onUpdateAnalysis(message.id, data);
     } catch (error) {
       const friendlyError = error.message || getUserFriendlyError(error, 'general');
@@ -263,6 +249,7 @@ StreamingMessage.propTypes = {
     sql_query: PropTypes.string,
     user_question: PropTypes.string,
     query_id: PropTypes.string,
+    database: PropTypes.string,
     analysis_explanation: PropTypes.string,
     visualization_path: PropTypes.string,
     results: PropTypes.any,
