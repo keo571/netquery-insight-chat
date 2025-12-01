@@ -83,21 +83,21 @@ If you would rather run each process yourself:
 ## Logs & Health Checks
 - Adapter log: `tail -f /tmp/netquery-adapter.log`
 - React log: `tail -f /tmp/react-frontend.log`
-- Adapter health: `curl http://localhost:8001/health`
+- Adapter health: `curl http://localhost:8002/health`
 - Netquery health: `curl http://localhost:8000/health`
 - Schema overview: `curl http://localhost:8000/api/schema/overview`
 
 ## Configuration Reference
 Copy `.env.example` to `.env` and adjust as needed:
 ```bash
-REACT_APP_API_URL=http://localhost:8001
+REACT_APP_API_URL=http://localhost:8002
 REACT_APP_NETQUERY_API_URL=http://localhost:8000
 REACT_APP_AGENT_NAME=Netquery
 REACT_APP_WELCOME_TITLE=Welcome to Netquery!
 REACT_APP_WELCOME_MESSAGE=Ask me about your infrastructure data.
 REACT_APP_INPUT_PLACEHOLDER=Ask about your infrastructure data...
 NETQUERY_API_URL=http://localhost:8000
-ADAPTER_PORT=8001
+ADAPTER_PORT=8002
 ```
 `src/utils/constants.js` provides sensible defaults if a value is missing.
 
@@ -117,7 +117,7 @@ ADAPTER_PORT=8001
 
 ## Troubleshooting
 - **Backend not running** – Start Netquery backend first: `cd ~/Code/netquery && ./api-server.sh`
-- **Port already in use** – `./dev-stop.sh` or kill manually: `lsof -ti:8001 | xargs kill -9`
+- **Port already in use** – `./dev-stop.sh` or kill manually: `lsof -ti:8002 | xargs kill -9`
 - **Dependency issues** – Recreate Python venv: `rm -rf .venv && python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt`
 - **Node issues** – Clean reinstall: `npm run clean`
 - **Schema overview failing** – Check Netquery backend is running and healthy: `curl http://localhost:8000/health`
@@ -130,7 +130,7 @@ ADAPTER_PORT=8001
          │
          ↓
 ┌─────────────────┐
-│ Backend Adapter │  Port 8001  (This repo)
+│ Backend Adapter │  Port 8002  (This repo)
 └────────┬────────┘
          │
          ↓
