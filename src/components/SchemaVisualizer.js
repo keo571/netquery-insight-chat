@@ -1,4 +1,4 @@
-import React, { useMemo, useEffect, useRef } from 'react';
+import React, { useEffect, useRef } from 'react';
 import ReactFlow, {
     Background,
     Controls,
@@ -7,8 +7,7 @@ import ReactFlow, {
     useNodesState,
     useEdgesState,
     useReactFlow,
-    ReactFlowProvider,
-    Panel
+    ReactFlowProvider
 } from 'reactflow';
 import dagre from 'dagre';
 import 'reactflow/dist/style.css';
@@ -41,7 +40,6 @@ const TableNode = ({ data, id }) => {
                     <span className="table-icon">🗃️</span>
                     <span className="table-name">{data.label}</span>
                 </div>
-                <span className="column-badge">{columns.length}</span>
             </div>
 
             {isExpanded && (
@@ -162,23 +160,33 @@ const SchemaVisualizerInner = ({ schema }) => {
             position: { x: 0, y: 0 }
         }));
 
-        // 2. Create edges
+        // 2. Create edges from related_tables (from canonical schema)
         const initialEdges = [];
-        schema.tables.forEach(sourceTable => {
-            const columns = sourceTable.columns || [];
-            columns.forEach(col => {
-                if (col.name && col.name.endsWith('_id')) {
-                    const targetTableName = col.name.replace('_id', '');
-                    const targetTable = schema.tables.find(t =>
-                        t.name === targetTableName || t.name === targetTableName + 's'
-                    );
+        const addedEdges = new Set(); // Avoid duplicate edges
 
-                    if (targetTable) {
+        schema.tables.forEach(sourceTable => {
+            const relatedTables = sourceTable.related_tables || [];
+            relatedTables.forEach(targetTableName => {
+                // Check if target table exists in schema
+                const targetTable = schema.tables.find(t => t.name === targetTableName);
+                if (targetTable) {
+                    const edgeId = `${sourceTable.name}-${targetTableName}`;
+                    if (!addedEdges.has(edgeId)) {
+                        addedEdges.add(edgeId);
+
+                        // Find the FK column (column ending with referenced table name + _id)
+                        const columns = sourceTable.columns || [];
+                        const fkColumn = columns.find(col =>
+                            col.name.endsWith('_id') &&
+                            (col.name === `${targetTableName}_id` ||
+                             col.name === `${targetTableName.replace(/s$/, '')}_id`)
+                        );
+
                         initialEdges.push({
-                            id: `${sourceTable.name}-${targetTable.name}`,
+                            id: edgeId,
                             source: sourceTable.name,
-                            target: targetTable.name,
-                            type: 'smoothstep', // Formal orthogonal lines
+                            target: targetTableName,
+                            type: 'smoothstep',
                             style: { stroke: '#999', strokeWidth: 1.5 },
                             markerEnd: {
                                 type: 'arrowclosed',
@@ -186,8 +194,8 @@ const SchemaVisualizerInner = ({ schema }) => {
                             },
                             animated: false,
                             data: {
-                                sourceColumn: col.name,
-                                targetColumn: 'id' // Assumption: target is always 'id' for now
+                                sourceColumn: fkColumn ? fkColumn.name : null,
+                                targetColumn: 'id'
                             }
                         });
                     }
