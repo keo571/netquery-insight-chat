@@ -160,45 +160,35 @@ const SchemaVisualizerInner = ({ schema }) => {
             position: { x: 0, y: 0 }
         }));
 
-        // 2. Create edges from related_tables (from canonical schema)
+        // 2. Create edges from relationships (proper FK links from backend)
         const initialEdges = [];
         const addedEdges = new Set(); // Avoid duplicate edges
 
         schema.tables.forEach(sourceTable => {
-            const relatedTables = sourceTable.related_tables || [];
-            relatedTables.forEach(targetTableName => {
-                // Check if target table exists in schema
-                const targetTable = schema.tables.find(t => t.name === targetTableName);
-                if (targetTable) {
-                    const edgeId = `${sourceTable.name}-${targetTableName}`;
-                    if (!addedEdges.has(edgeId)) {
-                        addedEdges.add(edgeId);
+            const relationships = sourceTable.relationships || [];
 
-                        // Find the FK column (column ending with referenced table name + _id)
-                        const columns = sourceTable.columns || [];
-                        const fkColumn = columns.find(col =>
-                            col.name.endsWith('_id') &&
-                            (col.name === `${targetTableName}_id` ||
-                             col.name === `${targetTableName.replace(/s$/, '')}_id`)
-                        );
+            // Each relationship represents: sourceTable.foreign_key_column → referenced_table.referenced_column
+            relationships.forEach(rel => {
+                const edgeId = `${sourceTable.name}-${rel.foreign_key_column}-${rel.referenced_table}`;
+                if (!addedEdges.has(edgeId)) {
+                    addedEdges.add(edgeId);
 
-                        initialEdges.push({
-                            id: edgeId,
-                            source: sourceTable.name,
-                            target: targetTableName,
-                            type: 'smoothstep',
-                            style: { stroke: '#999', strokeWidth: 1.5 },
-                            markerEnd: {
-                                type: 'arrowclosed',
-                                color: '#999',
-                            },
-                            animated: false,
-                            data: {
-                                sourceColumn: fkColumn ? fkColumn.name : null,
-                                targetColumn: 'id'
-                            }
-                        });
-                    }
+                    initialEdges.push({
+                        id: edgeId,
+                        source: sourceTable.name,
+                        target: rel.referenced_table,
+                        type: 'smoothstep',
+                        style: { stroke: '#999', strokeWidth: 1.5 },
+                        markerEnd: {
+                            type: 'arrowclosed',
+                            color: '#999',
+                        },
+                        animated: false,
+                        data: {
+                            sourceColumn: rel.foreign_key_column,
+                            targetColumn: rel.referenced_column
+                        }
+                    });
                 }
             });
         });
