@@ -84,17 +84,17 @@ const getLayoutedElements = (nodes, edges, direction = 'LR') => {
 
     dagreGraph.setGraph({
         rankdir: direction,
-        ranksep: 300, // Increased horizontal spacing to give edges more room
-        nodesep: 100   // Increased vertical spacing
+        ranksep: 150,   // Space between ranks (columns in LR, rows in TB)
+        nodesep: 60,    // Space between nodes in same rank
+        edgesep: 30,    // Minimum edge separation
+        marginx: 20,    // Horizontal margin
+        marginy: 20,    // Vertical margin
+        ranker: 'tight-tree'  // Tight tree for more compact layout
     });
 
     nodes.forEach((node) => {
-        // Dynamic width calculation based on label length
-        // Base width 220px + approx 12px per character over 10 chars
-        const labelLength = node.data.label ? node.data.label.length : 0;
-        const dynamicWidth = Math.max(240, labelLength * 12 + 70); // Ensure enough space for icon + padding
-
-        dagreGraph.setNode(node.id, { width: dynamicWidth, height: 80 });
+        // Fixed width for consistency
+        dagreGraph.setNode(node.id, { width: 180, height: 50 });
     });
 
     edges.forEach((edge) => {
@@ -160,29 +160,29 @@ const SchemaVisualizerInner = ({ schema }) => {
             position: { x: 0, y: 0 }
         }));
 
-        // 2. Create edges from relationships (proper FK links from backend)
+        // 2. Create edges from relationships (deduplicate bidirectional into single undirected link)
         const initialEdges = [];
-        const addedEdges = new Set(); // Avoid duplicate edges
+        const addedEdges = new Set(); // Track connections between table pairs
 
         schema.tables.forEach(sourceTable => {
             const relationships = sourceTable.relationships || [];
 
-            // Each relationship represents: sourceTable.foreign_key_column → referenced_table.referenced_column
             relationships.forEach(rel => {
-                const edgeId = `${sourceTable.name}-${rel.foreign_key_column}-${rel.referenced_table}`;
-                if (!addedEdges.has(edgeId)) {
-                    addedEdges.add(edgeId);
+                // Create a canonical edge ID that's the same regardless of direction
+                // Sort table names alphabetically to ensure A-B and B-A produce the same key
+                const tables = [sourceTable.name, rel.referenced_table].sort();
+                const canonicalEdgeId = `${tables[0]}-${tables[1]}`;
+
+                if (!addedEdges.has(canonicalEdgeId)) {
+                    addedEdges.add(canonicalEdgeId);
 
                     initialEdges.push({
-                        id: edgeId,
+                        id: canonicalEdgeId,
                         source: sourceTable.name,
                         target: rel.referenced_table,
                         type: 'smoothstep',
                         style: { stroke: '#999', strokeWidth: 1.5 },
-                        markerEnd: {
-                            type: 'arrowclosed',
-                            color: '#999',
-                        },
+                        // No arrow - undirected relationship line
                         animated: false,
                         data: {
                             sourceColumn: rel.foreign_key_column,
