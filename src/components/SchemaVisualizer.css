@@ -145,12 +145,16 @@
 /* Handle wrappers for column rows - ensures handles are vertically centered */
 .handle-wrapper {
     position: absolute;
-    top: 0;
-    bottom: 0;
+    top: 75%;
+    /* Push it down significantly as requested */
+    transform: translateY(-50%);
     width: 20px;
+    height: 20px;
     display: flex;
     align-items: center;
     justify-content: center;
+    z-index: 100;
+    /* Ensure it's on top */
 }
 
 .handle-wrapper.handle-left {
@@ -161,14 +165,22 @@
     right: -10px;
 }
 
-/* Reset React Flow handle positioning within wrappers */
 .handle-wrapper .react-flow__handle {
-    position: relative !important;
-    top: auto !important;
-    left: auto !important;
+    position: absolute !important;
+    top: 50% !important;
+    left: 50% !important;
+    transform: translate(-50%, -50%) !important;
     right: auto !important;
-    transform: none !important;
+    bottom: auto !important;
+    width: 4px !important;
+    height: 4px !important;
+    min-width: 0 !important;
+    min-height: 0 !important;
+    border: none !important;
+    background: transparent !important;
 }
+
+
 
 .table-column-row:last-child {
     border-bottom: none;
