@@ -142,10 +142,32 @@
     position: relative;
 }
 
-/* React Flow handles within column rows - vertically centered */
-.table-column-row .react-flow__handle {
-    top: 50% !important;
-    transform: translateY(-50%) !important;
+/* Handle wrappers for column rows - ensures handles are vertically centered */
+.handle-wrapper {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.handle-wrapper.handle-left {
+    left: -10px;
+}
+
+.handle-wrapper.handle-right {
+    right: -10px;
+}
+
+/* Reset React Flow handle positioning within wrappers */
+.handle-wrapper .react-flow__handle {
+    position: relative !important;
+    top: auto !important;
+    left: auto !important;
+    right: auto !important;
+    transform: none !important;
 }
 
 .table-column-row:last-child {

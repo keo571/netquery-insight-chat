@@ -50,21 +50,26 @@ const TableNode = ({ data, id }) => {
                     {keyColumns.length > 0 ? (
                         keyColumns.map((col, index) => (
                             <div key={index} className="table-column-row">
-                                {/* Column-specific handles - centered via CSS */}
-                                <Handle
-                                    type="target"
-                                    position={Position.Left}
-                                    id={`target-${col.name}`}
-                                    style={{ left: -10, opacity: 0 }}
-                                />
+                                {/* Left handle wrapper - positions handle at vertical center */}
+                                <div className="handle-wrapper handle-left">
+                                    <Handle
+                                        type="target"
+                                        position={Position.Left}
+                                        id={`target-${col.name}`}
+                                        style={{ opacity: 0 }}
+                                    />
+                                </div>
                                 <span className="col-name">{col.name}</span>
                                 <span className="col-type">{col.type}</span>
-                                <Handle
-                                    type="source"
-                                    position={Position.Right}
-                                    id={`source-${col.name}`}
-                                    style={{ right: -10, opacity: 0 }}
-                                />
+                                {/* Right handle wrapper - positions handle at vertical center */}
+                                <div className="handle-wrapper handle-right">
+                                    <Handle
+                                        type="source"
+                                        position={Position.Right}
+                                        id={`source-${col.name}`}
+                                        style={{ opacity: 0 }}
+                                    />
+                                </div>
                             </div>
                         ))
                     ) : (
