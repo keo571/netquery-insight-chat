@@ -160,6 +160,9 @@ const SchemaVisualizerInner = ({ schema }) => {
         if (!schema || !schema.tables) return;
 
         setIsLayoutReady(false);
+        // Reset expanded nodes when schema changes
+        setExpandedNodes(new Set());
+        setHoveredNode(null);
 
         // 1. Create initial nodes
         const initialNodes = schema.tables.map((table) => ({
@@ -270,7 +273,7 @@ const SchemaVisualizerInner = ({ schema }) => {
                     : { stroke: '#999', strokeWidth: 1.5 }
             };
         }));
-
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- nodes.length is only used as a guard, not a dependency
     }, [expandedNodes, hoveredNode, setNodes, setEdges, toggleNode, handleNodeHover]);
 
     return (

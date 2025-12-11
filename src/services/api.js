@@ -1,12 +1,68 @@
 import { getUserFriendlyError } from '../utils/errorMessages';
 
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8002';
+// ================================
+// API URL CONFIGURATION
+// ================================
+
+// Database to backend URL mapping (for development / cross-origin mode)
+const DATABASE_URLS = {
+    'sample': process.env.REACT_APP_SAMPLE_URL || 'http://localhost:8000',
+    'neila': process.env.REACT_APP_NEILA_URL || 'http://localhost:8001',
+};
+
+/**
+ * Detect if we're running in same-origin mode (served by backend)
+ *
+ * Same-origin mode: Frontend is served by the backend (e.g., http://server:8001)
+ * Cross-origin mode: Frontend runs on separate dev server (e.g., http://localhost:3000)
+ *
+ * In same-origin mode, we use window.location.origin for API calls.
+ * This enables zero-config deployment where users just access the backend URL.
+ */
+const isSameOriginMode = () => {
+    // Development server (npm start) runs on port 3000
+    const port = window.location.port;
+    const isDevServer = port === '3000';
+
+    // Also check if we have an explicit dev mode flag
+    const forceDevMode = process.env.REACT_APP_DEV_MODE === 'true';
+
+    // Same-origin if NOT on dev server port and NOT forced dev mode
+    return !isDevServer && !forceDevMode;
+};
+
+/**
+ * Get API URL for a specific database
+ *
+ * - Same-origin mode: Always use window.location.origin (database determined by which backend served the page)
+ * - Cross-origin mode: Use configured URLs from environment variables
+ *
+ * @param {string} database - Database name (used only in cross-origin mode)
+ * @returns {string} API base URL
+ */
+const getApiUrl = (database = 'sample') => {
+    if (isSameOriginMode()) {
+        // Production: Use same origin (backend serves frontend)
+        return window.location.origin;
+    }
+    // Development: Use configured URLs for database switching
+    return DATABASE_URLS[database] || DATABASE_URLS['sample'];
+};
+
+/**
+ * Check if database switching is available
+ * Only available in cross-origin (development) mode
+ */
+export const isDatabaseSwitchingEnabled = () => {
+    return !isSameOriginMode();
+};
 
 export const queryAgent = async (query, sessionId = null, onEvent, database = 'sample') => {
     try {
         const requestBody = {
             message: query,
-            database: database  // Include selected database
+            database: database,  // Include selected database
+            include_interpretation: false  // User clicks "Show Analysis" to get interpretation
         };
 
         // Include session ID if provided (for conversation continuity)
@@ -14,7 +70,7 @@ export const queryAgent = async (query, sessionId = null, onEvent, database = 's
             requestBody.session_id = sessionId;
         }
 
-        const response = await fetch(`${API_URL}/chat`, {
+        const response = await fetch(`${getApiUrl(database)}/chat`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -76,7 +132,7 @@ export const queryAgent = async (query, sessionId = null, onEvent, database = 's
  */
 export const fetchSchemaOverview = async (database = 'sample') => {
     try {
-        const response = await fetch(`${API_URL}/schema/overview?database=${encodeURIComponent(database)}`);
+        const response = await fetch(`${getApiUrl(database)}/api/schema/overview?database=${encodeURIComponent(database)}`);
         if (!response.ok) {
             throw new Error(`Failed to fetch schema: ${response.statusText}`);
         }
@@ -89,7 +145,7 @@ export const fetchSchemaOverview = async (database = 'sample') => {
 
 export const fetchInterpretation = async (queryId, database = 'sample') => {
     try{
-        const response = await fetch(`${API_URL}/api/interpret/${queryId}?database=${encodeURIComponent(database)}`);
+        const response = await fetch(`${getApiUrl(database)}/api/interpret/${queryId}?database=${encodeURIComponent(database)}`);
         if (!response.ok) {
             const error = new Error(`HTTP ${response.status}: ${response.statusText}`);
             throw error;
@@ -103,9 +159,9 @@ export const fetchInterpretation = async (queryId, database = 'sample') => {
     }
 };
 
-export const submitFeedback = async (feedbackData) => {
+export const submitFeedback = async (feedbackData, database = 'sample') => {
     try {
-        const response = await fetch(`${API_URL}/api/feedback`, {
+        const response = await fetch(`${getApiUrl(database)}/api/feedback`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',

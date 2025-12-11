@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import PropTypes from 'prop-types';
 import DatabaseSelector from './DatabaseSelector';
+import { isDatabaseSwitchingEnabled } from '../services/api';
 import './Sidebar.css';
 
 const Sidebar = ({
@@ -14,6 +15,11 @@ const Sidebar = ({
 }) => {
   const [activeTab, setActiveTab] = useState('suggestions'); // 'suggestions' or 'schema'
   const [expandedTables, setExpandedTables] = useState({});
+
+  // Reset expanded tables when database changes
+  useEffect(() => {
+    setExpandedTables({});
+  }, [selectedDatabase]);
 
   const toggleTable = (tableName) => {
     setExpandedTables(prev => ({
@@ -38,15 +44,17 @@ const Sidebar = ({
           </button>
         </div>
 
-        {/* Database Selector */}
-        <div className="sidebar-section">
-          <div className="section-label">Database</div>
-          <DatabaseSelector
-            selectedDatabase={selectedDatabase}
-            databases={databases}
-            onDatabaseChange={onDatabaseChange}
-          />
-        </div>
+        {/* Database Selector - only shown in development mode */}
+        {isDatabaseSwitchingEnabled() && (
+          <div className="sidebar-section">
+            <div className="section-label">Database</div>
+            <DatabaseSelector
+              selectedDatabase={selectedDatabase}
+              databases={databases}
+              onDatabaseChange={onDatabaseChange}
+            />
+          </div>
+        )}
 
         <div className="sidebar-tabs">
           <button

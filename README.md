@@ -3,150 +3,166 @@
 React chat UI for the Netquery FastAPI backend. Ask infrastructure questions in natural language, get contextual SQL with markdown explanations, and surface schema hints when Netquery recommends a different direction.
 
 ## Highlights
-- Conversational SQL with lightweight session tracking so follow-ups stay in context.
-- Schema guidance blocks that list relevant tables and suggested prompts when Netquery sends guidance instead of SQL.
-- Recharts visualisations that suppress themselves when the data is unsuitable (entity lists, non-aggregates, etc.).
+- Conversational SQL with session tracking so follow-ups stay in context.
+- Multi-database support in development mode (Sample and Neila databases).
+- Same-origin deployment for production (single URL, zero config).
+- Schema guidance blocks that list relevant tables and suggested prompts.
+- Recharts visualisations that suppress themselves when the data is unsuitable.
 - Progressive data tables with CSV downloads and server-side export support.
-- Docker-free workflow managed by helper scripts for macOS and Linux shells.
 
 ## Requirements
 - Node.js 16+
-- Python 3.9+
-- Local Netquery backend running (from `~/Code/netquery`)
+- Netquery backend running (from `~/Code/netquery`)
 
-## Quick Start
+---
 
-**Step 1: Start Netquery Backend** (in separate terminal)
+## Development Mode
+
+Development mode runs the frontend on a separate dev server (port 3000), enabling:
+- Hot reload on code changes
+- Database switching via UI
+- React dev tools
+
+**Terminal 1: Start Backend(s)**
 ```bash
 cd ~/Code/netquery
-
-# Choose dev or prod mode
-./start-dev.sh    # Dev mode (SQLite, fast setup)
-# OR
-./start-prod.sh   # Prod mode (PostgreSQL in Docker)
-
-# Then start the API server
-./api-server.sh   # Starts on port 8000
+./start-dual-backends.sh --dev    # Starts sample:8000 + neila:8001 with auto-reload
 ```
 
-**Step 2: Start Frontend Services** (in this repo)
+**Terminal 2: Start Frontend**
 ```bash
-cp .env.example .env
-./dev-start.sh
+cd ~/Code/netquery-insight-chat
+cp .env.example .env              # First time only
+npm install                       # First time only
+npm start                         # Starts on port 3000
 ```
 
-The frontend script checks that Netquery backend is running, then starts the adapter (8002) and React dev server (3000). Visit [http://localhost:3000](http://localhost:3000) when ready.
+**Access:** http://localhost:3000
 
-**Stop Services:**
+| Feature | Status |
+|---------|--------|
+| Database selector | ✅ Visible |
+| Hot reload | ✅ Enabled |
+| Switch databases | ✅ sample ↔ neila |
+
+---
+
+## Production Mode
+
+Production mode serves the frontend directly from the backend (same-origin), enabling:
+- Single URL deployment
+- Zero frontend configuration
+- No CORS complexity
+
+**Step 1: Build Frontend**
 ```bash
-./dev-stop.sh         # Stops only frontend (adapter + React)
-# Stop backend separately in ~/Code/netquery with Ctrl+C
+cd ~/Code/netquery-insight-chat
+npm run build                     # Creates build/ folder
 ```
 
-**Check Status:**
+**Step 2: Start Backend**
 ```bash
-./dev-status.sh       # Shows status of all services
+cd ~/Code/netquery
+SCHEMA_ID=neila python -m src.api.server --port 8001
 ```
 
-### Script Overrides
+**Access:** http://localhost:8001 (or your server IP/domain)
+
+| Feature | Status |
+|---------|--------|
+| Database selector | ❌ Hidden |
+| Hot reload | ❌ Rebuild required |
+| Database | Fixed (determined by backend) |
+
+The backend automatically serves the React build from `../netquery-insight-chat/build/`.
+
+---
+
+## Configuration
+
+Copy `.env.example` to `.env` (development mode only):
+
 ```bash
-# Override port bindings
-ADAPTER_PORT=8081 FRONTEND_PORT=3001 ./dev-start.sh
+# Backend URLs (only used in development mode)
+# In production, frontend auto-detects via window.location.origin
+REACT_APP_SAMPLE_URL=http://localhost:8000
+REACT_APP_NEILA_URL=http://localhost:8001
 
-# Connect to backend on different port/host
-NETQUERY_API_URL=http://localhost:8080 ./dev-start.sh
-```
-Process IDs are cached in `/tmp/netquery-insight-chat.pids` for easy cleanup.
+# Force development mode (optional)
+# REACT_APP_DEV_MODE=true
 
-## Manual Workflow
-If you would rather run each process yourself:
-
-1. **Netquery backend** (see `~/Code/netquery` repo for setup instructions)
-    ```bash
-    cd ~/Code/netquery
-    ./api-server.sh
-    ```
-2. **Adapter**
-    ```bash
-    cd ~/Code/netquery-insight-chat
-    python3 -m venv .venv
-    source .venv/bin/activate
-    pip install -r requirements.txt
-    python chat_adapter.py
-    ```
-3. **React frontend**
-    ```bash
-    npm install
-    npm start
-    ```
-
-## Logs & Health Checks
-- Adapter log: `tail -f /tmp/netquery-adapter.log`
-- React log: `tail -f /tmp/react-frontend.log`
-- Adapter health: `curl http://localhost:8002/health`
-- Netquery health: `curl http://localhost:8000/health`
-- Schema overview: `curl http://localhost:8000/api/schema/overview`
-
-## Configuration Reference
-Copy `.env.example` to `.env` and adjust as needed:
-```bash
-REACT_APP_API_URL=http://localhost:8002
-REACT_APP_NETQUERY_API_URL=http://localhost:8000
+# UI Customization
 REACT_APP_AGENT_NAME=Netquery
 REACT_APP_WELCOME_TITLE=Welcome to Netquery!
 REACT_APP_WELCOME_MESSAGE=Ask me about your infrastructure data.
 REACT_APP_INPUT_PLACEHOLDER=Ask about your infrastructure data...
-NETQUERY_API_URL=http://localhost:8000
-ADAPTER_PORT=8002
 ```
-`src/utils/constants.js` provides sensible defaults if a value is missing.
+
+---
 
 ## Project Layout
+
 ```
 ├── src/
 │   ├── components/        # Chat UI, tables, guidance blocks, visualisations
 │   ├── hooks/             # useChat, useScrollToBottom
-│   ├── services/api.js    # Adapter + schema overview calls
-│   ├── utils/debug.js     # Dev-time logging helper
-│   └── __mocks__/         # react-markdown Jest mock
-├── chat_adapter.py        # FastAPI adapter (BFF layer) with sessions + streaming
-├── dev-start.sh / stop.sh / status.sh
-├── README.md              # This consolidated guide
-├── .env.example, LICENSE, package.json, requirements.txt
+│   ├── services/api.js    # API calls with same-origin/cross-origin detection
+│   ├── utils/             # Constants, debug helpers
+│   └── __mocks__/         # Jest mocks
+├── build/                 # Production build (generated by npm run build)
+├── README.md              # This guide
+├── .env.example           # Environment template
+└── package.json
 ```
 
-## Troubleshooting
-- **Backend not running** – Start Netquery backend first: `cd ~/Code/netquery && ./api-server.sh`
-- **Port already in use** – `./dev-stop.sh` or kill manually: `lsof -ti:8002 | xargs kill -9`
-- **Dependency issues** – Recreate Python venv: `rm -rf .venv && python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt`
-- **Node issues** – Clean reinstall: `npm run clean`
-- **Schema overview failing** – Check Netquery backend is running and healthy: `curl http://localhost:8000/health`
+---
 
 ## Architecture
+
 ```
-┌─────────────────┐
-│  React Frontend │  Port 3000  (This repo)
-└────────┬────────┘
-         │
-         ↓
-┌─────────────────┐
-│ Backend Adapter │  Port 8002  (This repo)
-└────────┬────────┘
-         │
-         ↓
-┌─────────────────┐
-│ Netquery API    │  Port 8000  (~/Code/netquery)
-└────────┬────────┘
-         │
-         ↓
-┌─────────────────┐
-│ PostgreSQL/     │  Port 5432 / SQLite
-│ SQLite          │  (Managed by Netquery backend)
-└─────────────────┘
+DEVELOPMENT (Cross-Origin)              PRODUCTION (Same-Origin)
+========================               ==========================
+
+┌─────────────────┐                    ┌─────────────────┐
+│ React Dev Server│ :3000              │ User Browser    │
+│ (npm start)     │                    └────────┬────────┘
+└────────┬────────┘                             │
+         │                                      │ http://server:8001
+    ┌────┴────┐                                 │
+    ▼         ▼                         ┌───────▼────────┐
+┌───────┐ ┌───────┐                     │ Neila Backend  │ :8001
+│Sample │ │Neila  │                     │ (serves React  │
+│:8000  │ │:8001  │                     │  + API)        │
+└───────┘ └───────┘                     └───────┬────────┘
+                                                │
+✅ DB switching enabled                 ┌───────▼────────┐
+✅ Hot reload                           │ neila.db       │
+                                        └────────────────┘
+
+                                        ❌ DB switching disabled
+                                        ✅ Single URL deployment
 ```
 
-**Repository Responsibilities:**
-- **This repo (netquery-insight-chat):** Frontend UI + Chat adapter
-- **~/Code/netquery:** Backend API + SQL generation + Database
+**How it works:**
+- Frontend detects mode via `window.location.port`
+- Port 3000 → Development (cross-origin, use configured URLs)
+- Any other port → Production (same-origin, use `window.location.origin`)
 
-Before opening issues or pull requests, copy `.env.example` to `.env`, confirm all services start locally, and keep contributions focused and well described. Happy querying! 🚀
+---
+
+## Troubleshooting
+
+| Problem | Solution |
+|---------|----------|
+| Backend not running | `cd ~/Code/netquery && ./start-dual-backends.sh --dev` |
+| Port 3000 in use | `lsof -ti:3000 \| xargs kill -9` |
+| Node issues | `rm -rf node_modules && npm install` |
+| Schema not loading | Check backend health: `curl http://localhost:8000/health` |
+| DB selector missing | Expected in production mode; use dev mode for switching |
+
+---
+
+## Related
+
+- **Backend:** [~/Code/netquery](../netquery) - Unified server with SQL generation, session management, and static file serving
+- **Architecture Decisions:** See [ARCHITECTURE_DECISIONS.md](ARCHITECTURE_DECISIONS.md) for detailed ADRs

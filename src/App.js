@@ -111,6 +111,7 @@ function App() {
       />
 
       <SchemaModal
+        key={selectedDatabase}
         isOpen={isSchemaModalOpen}
         onClose={() => setIsSchemaModalOpen(false)}
         schema={schemaOverview}

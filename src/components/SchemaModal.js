@@ -14,7 +14,7 @@ const SchemaModal = ({ isOpen, onClose, schema }) => {
           <button className="close-modal-btn" onClick={onClose}>×</button>
         </div>
         <div className="schema-modal-body">
-          <SchemaVisualizer schema={schema} />
+          <SchemaVisualizer key={schema?.schema_id} schema={schema} />
         </div>
       </div>
     </div>

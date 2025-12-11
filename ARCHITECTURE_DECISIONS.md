@@ -7,7 +7,9 @@ This document captures the key architectural decisions made in the Netquery Insi
 
 ## ADR-001: Three-Tier Architecture with Adapter Layer
 
-**Status:** Accepted
+**Status:** Superseded by ADR-016 (Unified Server Architecture)
+
+> **Note:** This ADR describes the original architecture. As of December 2025, the BFF layer has been merged into the backend. See **ADR-016** for the current two-tier architecture.
 
 **Context:**
 The Netquery backend is a specialized FastAPI server that generates SQL from natural language queries. We needed a web interface that could work with this backend while adding features like session management, conversation context, and progressive data display.
@@ -1281,12 +1283,110 @@ RESPONSIBILITIES OF NETQUERY BACKEND (Core):
 
 ---
 
+## ADR-016: Unified Server Architecture (BFF Merged into Backend)
+
+**Status:** Accepted (2025-12-11)
+
+**Context:**
+The original architecture required a separate Backend-for-Frontend (BFF) layer (`chat_adapter.py`) running on port 8002. This added complexity:
+- Three processes to manage: Frontend (3000) + BFF (8002) + Backend (8000/8001)
+- Session management code duplicated in BFF
+- Extra network hop added latency (~10-20ms)
+- Separate Python environment needed in frontend repo
+
+**Decision:**
+**Merged all BFF functionality into the netquery backend**. The `chat_adapter.py` has been **removed** from this repository.
+
+**New Architecture:**
+```
+┌─────────────────────┐
+│  React Frontend     │  Port 3000 (dev) or served by backend
+│  (This repo)        │  Pure React/JavaScript - no Python
+└──────────┬──────────┘
+           │ HTTP (direct)
+┌──────────▼──────────┐
+│ Unified Netquery    │  Port 8000 (sample) / Port 8001 (neila)
+│ Backend             │  ~/Code/netquery
+│  ├─ /chat (SSE)     │
+│  ├─ /api/* endpoints│
+│  ├─ Session mgmt    │
+│  └─ Static files    │
+└──────────┬──────────┘
+           │
+┌──────────▼──────────┐
+│ SQLite Database     │
+└─────────────────────┘
+```
+
+**What Moved to Backend:**
+- Session management (`get_or_create_session`, `add_to_conversation`)
+- SSE streaming for `/chat` endpoint
+- Conversation context building (`build_context_prompt`)
+- Feedback endpoint (`/api/feedback`)
+- Static file serving for React build
+
+**Frontend Changes:**
+```javascript
+// src/services/api.js - Database URL routing
+const DATABASE_URLS = {
+    'sample': process.env.REACT_APP_SAMPLE_URL || 'http://localhost:8000',
+    'neila': process.env.REACT_APP_NEILA_URL || 'http://localhost:8001',
+};
+
+// Frontend calls backend directly (no BFF)
+const response = await fetch(`${getApiUrl(database)}/chat`, {...});
+```
+
+**Consequences:**
+
+**Positive:**
+- ✅ **Simpler deployment**: One backend per database (no separate BFF process)
+- ✅ **Reduced latency**: No extra network hop (~10-20ms saved)
+- ✅ **Frontend is pure React**: No Python dependencies in this repo
+- ✅ **Single codebase**: All backend logic in netquery repo
+- ✅ **Easier debugging**: One log stream per database
+- ✅ **Production-ready**: Single URL deployment per database
+
+**Negative:**
+- ❌ **Backend dependency**: Must always have netquery backend running
+- ❌ **Larger backend**: Combined server.py (~999 lines)
+
+**Migration Notes:**
+- `chat_adapter.py` has been **removed** from this repository
+- `.env` updated: Use `REACT_APP_SAMPLE_URL` and `REACT_APP_NEILA_URL` instead of `REACT_APP_API_URL`
+- `dev-start.sh` updated: No longer starts BFF process
+- Port 8002 is no longer used
+
+**Files Changed:**
+- Deleted: `chat_adapter.py` (functionality moved to backend)
+- Modified: [src/services/api.js](src/services/api.js) - Database URL routing
+- Modified: [.env.example](.env.example) - Updated environment variables
+- Modified: [dev-start.sh](dev-start.sh) - Removed BFF process management
+
+**Related Backend ADR:** See `~/Code/netquery/docs/ARCHITECTURE_DECISION_RECORDS.md` ADR-023
+
+---
+
+## Technology Stack Summary (Updated)
+
+| Layer | Technology | Version | Rationale |
+|-------|-----------|---------|-----------|
+| Frontend | React | 19.1.0 | Modern hooks API, excellent ecosystem |
+| State | React Hooks | Built-in | Simple state needs; no Redux overhead |
+| Charts | Recharts | 3.2.1 | React-native, declarative, responsive |
+| **Backend** | **Netquery Unified Server** | **FastAPI** | **Session mgmt + SSE + API in one server** |
+| Database | SQLite | 3.x | Simple, embedded, no setup required |
+| Dev Server | npm start | Built-in | Create React App dev server |
+| Process Mgmt | Bash scripts | Native | Simple, transparent, no orchestration overhead |
+
+---
+
 ## Future Considerations
 
 ### When to Revisit Decisions
 
-1. **Session Management (ADR-002):** Switch to Redis when:
-   - Multiple adapter instances needed (horizontal scaling)
+1. **Session Management (ADR-002):** Now handled by backend. Switch to Redis when:
+   - Multiple backend instances needed (horizontal scaling)
    - Session persistence across restarts required
    - Active users > 1000 concurrent sessions
 
@@ -1300,10 +1400,10 @@ RESPONSIBILITIES OF NETQUERY BACKEND (Core):
    - CI/CD requires containers
    - Deployment target is Kubernetes
 
-4. **In-Memory Context (ADR-003):** Use vector DB when:
-   - Conversation history exceeds 10+ exchanges
-   - Need semantic search across past queries
-   - Multi-user query sharing required
+4. **Unified Server (ADR-016):** Consider separate BFF again if:
+   - Frontend needs features backend can't support
+   - Multiple frontends need shared middleware
+   - Team grows and wants clearer boundaries
 
 ---
 

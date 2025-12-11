@@ -61,16 +61,7 @@ temp/
 ehthumbs.db
 Thumbs.db
 
-# Python
-.venv/
-venv/
-env/
-.env/
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-*.egg-info/
+# Database files (if any)
 *.sqlite
 *.sqlite3
 *.db
@@ -81,3 +72,8 @@ __pycache__/
 
 # User feedback data
 feedback.jsonl
+
+# Python (legacy - removed BFF)
+__pycache__/
+*.py[cod]
+.venv/
