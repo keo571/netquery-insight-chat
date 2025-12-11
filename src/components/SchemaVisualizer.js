@@ -18,6 +18,7 @@ const TableNode = ({ data, id }) => {
     const columns = data.columns || [];
     const isExpanded = data.isExpanded;
     const onToggle = data.onToggle;
+    const onHover = data.onHover;
 
     // Filter for key columns (explicit keys or heuristics)
     const keyColumns = columns.filter(col =>
@@ -28,13 +29,15 @@ const TableNode = ({ data, id }) => {
 
     return (
         <div className={`table-node ${isExpanded ? 'expanded' : ''}`}>
-            {/* Default handles for collapsed state */}
-            <Handle type="target" position={Position.Left} style={{ opacity: 0, top: '50%' }} />
-            <Handle type="source" position={Position.Right} style={{ opacity: 0, top: '50%' }} />
+            {/* Default handles for collapsed state - centered on the pill */}
+            <Handle type="target" position={Position.Left} style={{ opacity: 0, top: '50%', transform: 'translateY(-50%)' }} />
+            <Handle type="source" position={Position.Right} style={{ opacity: 0, top: '50%', transform: 'translateY(-50%)' }} />
 
             <div
                 className="table-pill"
                 onClick={() => onToggle(id)}
+                onMouseEnter={() => onHover && onHover(id)}
+                onMouseLeave={() => onHover && onHover(null)}
             >
                 <div className="table-pill-content">
                     <span className="table-icon">🗃️</span>
@@ -46,8 +49,8 @@ const TableNode = ({ data, id }) => {
                 <div className="table-columns-container">
                     {keyColumns.length > 0 ? (
                         keyColumns.map((col, index) => (
-                            <div key={index} className="table-column-row" style={{ position: 'relative' }}>
-                                {/* Column-specific handles */}
+                            <div key={index} className="table-column-row">
+                                {/* Column-specific handles - centered via CSS */}
                                 <Handle
                                     type="target"
                                     position={Position.Left}
@@ -127,6 +130,7 @@ const SchemaVisualizerInner = ({ schema }) => {
     const initializedRef = useRef(false);
     const [isLayoutReady, setIsLayoutReady] = React.useState(false);
     const [expandedNodes, setExpandedNodes] = React.useState(new Set());
+    const [hoveredNode, setHoveredNode] = React.useState(null);
 
     // Toggle node expansion
     const toggleNode = React.useCallback((nodeId) => {
@@ -139,6 +143,11 @@ const SchemaVisualizerInner = ({ schema }) => {
             }
             return next;
         });
+    }, []);
+
+    // Handle node hover - highlight connected edges
+    const handleNodeHover = React.useCallback((nodeId) => {
+        setHoveredNode(nodeId);
     }, []);
 
     // Initialize and layout nodes
@@ -155,7 +164,8 @@ const SchemaVisualizerInner = ({ schema }) => {
                 label: table.name,
                 columns: table.columns || [],
                 isExpanded: false, // Initial state
-                onToggle: toggleNode
+                onToggle: toggleNode,
+                onHover: handleNodeHover
             },
             position: { x: 0, y: 0 }
         }));
@@ -211,24 +221,27 @@ const SchemaVisualizerInner = ({ schema }) => {
             setTimeout(() => setIsLayoutReady(true), 50);
         }, 10);
 
-    }, [schema, setNodes, setEdges, fitView, toggleNode]);
+    }, [schema, setNodes, setEdges, fitView, toggleNode, handleNodeHover]);
 
-    // Update nodes and edges when expansion changes
+    // Update nodes and edges when expansion or hover changes
     useEffect(() => {
-        if (!initializedRef.current) return;
+        // Skip only if nodes haven't been initialized yet
+        if (nodes.length === 0) return;
 
         setNodes((nds) => nds.map((node) => ({
             ...node,
             data: {
                 ...node.data,
                 isExpanded: expandedNodes.has(node.id),
-                onToggle: toggleNode
+                onToggle: toggleNode,
+                onHover: handleNodeHover
             }
         })));
 
         setEdges((eds) => eds.map((edge) => {
             const isSourceExpanded = expandedNodes.has(edge.source);
             const isTargetExpanded = expandedNodes.has(edge.target);
+            const isConnectedToHovered = hoveredNode && (edge.source === hoveredNode || edge.target === hoveredNode);
 
             let sourceHandle = null;
             let targetHandle = null;
@@ -246,11 +259,14 @@ const SchemaVisualizerInner = ({ schema }) => {
             return {
                 ...edge,
                 sourceHandle,
-                targetHandle
+                targetHandle,
+                style: isConnectedToHovered
+                    ? { stroke: '#64B5F6', strokeWidth: 2.5, filter: 'drop-shadow(0 0 6px rgba(100, 181, 246, 0.8))' }
+                    : { stroke: '#999', strokeWidth: 1.5 }
             };
         }));
 
-    }, [expandedNodes, setNodes, setEdges, toggleNode]);
+    }, [expandedNodes, hoveredNode, setNodes, setEdges, toggleNode, handleNodeHover]);
 
     return (
         <div

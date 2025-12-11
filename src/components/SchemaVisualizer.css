@@ -134,12 +134,18 @@
 .table-column-row {
     display: flex;
     justify-content: space-between;
-    align-items: flex-start;
-    /* Align to top for wrapped text */
+    align-items: center;
     padding: 6px 8px;
     border-bottom: 1px solid #F5F5F5;
     font-size: 13px;
     gap: 8px;
+    position: relative;
+}
+
+/* React Flow handles within column rows - vertically centered */
+.table-column-row .react-flow__handle {
+    top: 50% !important;
+    transform: translateY(-50%) !important;
 }
 
 .table-column-row:last-child {
