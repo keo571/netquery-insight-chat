@@ -4,7 +4,7 @@ import { getUserFriendlyError } from '../utils/errorMessages';
 // API URL CONFIGURATION
 // ================================
 
-// Database to backend URL mapping (for development / cross-origin mode)
+// Database to backend URL mapping (for dual backend / development mode)
 const DATABASE_URLS = {
     'sample': process.env.REACT_APP_SAMPLE_URL || 'http://localhost:8000',
     'neila': process.env.REACT_APP_NEILA_URL || 'http://localhost:8001',
@@ -13,36 +13,36 @@ const DATABASE_URLS = {
 /**
  * Detect if we're running in same-origin mode (served by backend)
  *
- * Same-origin mode: Frontend is served by the backend (e.g., http://server:8001)
- * Cross-origin mode: Frontend runs on separate dev server (e.g., http://localhost:3000)
+ * Same-origin mode: Frontend is served by the backend (e.g., http://server:3000)
+ * Cross-origin mode: Frontend runs on separate dev server (npm start)
  *
  * In same-origin mode, we use window.location.origin for API calls.
  * This enables zero-config deployment where users just access the backend URL.
  */
 const isSameOriginMode = () => {
-    // Development server (npm start) runs on port 3000
-    const port = window.location.port;
-    const isDevServer = port === '3000';
-
-    // Also check if we have an explicit dev mode flag
+    // Check if we have an explicit dev mode flag (forces cross-origin mode)
     const forceDevMode = process.env.REACT_APP_DEV_MODE === 'true';
+    if (forceDevMode) {
+        return false;
+    }
 
-    // Same-origin if NOT on dev server port and NOT forced dev mode
-    return !isDevServer && !forceDevMode;
+    // In production build served by backend, NODE_ENV is 'production'
+    // In development (npm start), NODE_ENV is 'development'
+    return process.env.NODE_ENV === 'production';
 };
 
 /**
  * Get API URL for a specific database
  *
- * - Same-origin mode: Always use window.location.origin (database determined by which backend served the page)
+ * - Same-origin mode: Always use window.location.origin (backend serves frontend on any port)
  * - Cross-origin mode: Use configured URLs from environment variables
  *
  * @param {string} database - Database name (used only in cross-origin mode)
  * @returns {string} API base URL
  */
 const getApiUrl = (database = 'sample') => {
+    // Production: Use same origin (backend serves frontend on any port)
     if (isSameOriginMode()) {
-        // Production: Use same origin (backend serves frontend)
         return window.location.origin;
     }
     // Development: Use configured URLs for database switching
